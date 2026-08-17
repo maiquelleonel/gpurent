@@ -6,6 +6,9 @@
         "--settings",
         "gpurent.settings"
       ]
+    },
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp"
     }
   }
 }
