@@ -219,6 +219,12 @@ wheels = [
 ]
 
 [[package]]
+name = "crontab"
+version = "1.0.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/36/a255b6f5a2e22df03fd2b2f3088974b44b8c9e9407e26b44742cb7cfbf5b/crontab-1.0.5.tar.gz", hash = "sha256:f80e01b4f07219763a9869f926dd17147278e7965a928089bca6d3dc80ae46d5", size = 21963, upload-time = "2025-07-09T17:09:38.264Z" }
+
+[[package]]
 name = "cryptography"
 version = "50.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -316,6 +322,18 @@ version = "0.1.1"
 source = { git = "https://github.com/maiquelleonel/django-warden#62e06d59a05aa0ad5e9e05c28b610c14b6e7cff6" }
 dependencies = [
     { name = "django" },
+]
+
+[[package]]
+name = "djangorestframework"
+version = "3.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/bc/de04e3d4dc65e8b926700956ee70d4f084f2005603d21122d4d0683006fd/djangorestframework-3.18.0.tar.gz", hash = "sha256:2323a5111837e0b784dcb8323abc78ecc54fa2a5af7aff2677cf50cdd849477f", size = 913667, upload-time = "2026-08-07T14:53:33.571Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/d7/7461738e819b853275b35fd35712a85806c09a327e1fd5f8ff766bdd317e/djangorestframework-3.18.0-py3-none-any.whl", hash = "sha256:381fc44d3249c9565c5f723850855b734e99030eb30957a49f506d3fe11d7dcb", size = 900032, upload-time = "2026-08-07T14:53:31.881Z" },
 ]
 
 [[package]]
@@ -428,8 +446,10 @@ source = { virtual = "." }
 dependencies = [
     { name = "django" },
     { name = "django-warden" },
+    { name = "djangorestframework" },
     { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "steady-queue" },
 ]
 
 [package.dev-dependencies]
@@ -442,8 +462,10 @@ dev = [
 requires-dist = [
     { name = "django", specifier = ">=6.1" },
     { name = "django-warden", git = "https://github.com/maiquelleonel/django-warden" },
+    { name = "djangorestframework", specifier = ">=3.18.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
+    { name = "steady-queue", specifier = ">=0.2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1236,6 +1258,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "steady-queue"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "crontab" },
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9a/f5/6b028b646ef699ee2d8fd7e72d10237dc7afef3de3b97293a1ad9725f735/steady_queue-0.2.0.tar.gz", hash = "sha256:30db44f670d2e16d76ad912566f46f7278ac916b6ad42258e3e8cf62a6af095f", size = 83372, upload-time = "2026-04-18T06:53:10.194Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/9c/23812e61454e5a5509e13f47db27e9b2965db314b058e32e3171fac62de4/steady_queue-0.2.0-py3-none-any.whl", hash = "sha256:2c4cc3da6f9f6ba67889bcfa0acb7bc9e00344a43edb43afcbdc0066847fc5be", size = 64089, upload-time = "2026-04-18T06:53:08.433Z" },
 ]
 
 [[package]]

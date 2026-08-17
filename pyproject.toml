@@ -7,8 +7,10 @@ requires-python = ">=3.13"
 dependencies = [
     "django>=6.1",
     "django-warden>=0.1.0",
+    "djangorestframework>=3.18.0",
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.4",
+    "steady-queue>=0.2.0",
 ]
 
 [tool.uv.sources]

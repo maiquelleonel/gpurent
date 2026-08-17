@@ -2,6 +2,8 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 
@@ -23,6 +25,7 @@ class InvoiceStatus(models.TextChoices):
     UNPAID = "UNPAID", _("Unpaid")
     PAID = "PAID", _("Paid")
     FAILED = "FAILED", _("Failed")
+    REFUNDED = "REFUNDED", _("Refunded")
 
 
 class Invoice(models.Model):
@@ -43,3 +46,23 @@ class Invoice(models.Model):
 
     def __str__(self) -> str:
         return f"Invoice {self.pk} - {self.amount} ({self.status})"
+
+
+@receiver(post_save, sender=Invoice)
+def trigger_invoice_email(sender, instance, created, **kwargs):
+    """
+    Signal receiver that automatically queues a transactional billing email
+    upon creation of any Invoice.
+    """
+    if created:
+        from users.tasks import send_invoice_email
+
+        send_invoice_email.enqueue(invoice_id=str(instance.id))
+
+        # Trigger real-time SystemAlert for admin dashboard
+        from leases.models import SystemAlert
+
+        SystemAlert.objects.create(
+            alert_type="billing",
+            message=f"Invoice #{instance.id} issued for user {instance.user.username}: ${instance.amount}",
+        )

@@ -225,3 +225,119 @@ class BillingAndPaymentTestCase(TestCase):
         mock_post.side_effect = httpx.TimeoutException("Timed out")
         with self.assertRaises(PaymentTimeoutException):
             process_refund("invoice_123")
+
+    # ==========================================
+    # US15: STRIPE WEBHOOKS & ASYNC RECONCILIATION
+    # ==========================================
+    def test_stripe_webhook_signature_rejected(self):
+        # 1. Missing header gets 400 Bad Request
+        response_missing = self.client.post(
+            "/api/billing/webhooks/stripe/",
+            data={},
+            content_type="application/json",
+        )
+        self.assertEqual(response_missing.status_code, 400)
+        self.assertEqual(response_missing.content.decode(), "Invalid Stripe signature.")
+
+        # 2. Invalid header value gets 400 Bad Request
+        response_invalid = self.client.post(
+            "/api/billing/webhooks/stripe/",
+            data={},
+            content_type="application/json",
+            headers={"Stripe-Signature": "invalid_signing_secret"},
+        )
+        self.assertEqual(response_invalid.status_code, 400)
+
+    def test_stripe_webhook_refund_success_reconciles_database(self):
+        # Create an invoice for $20.00
+        invoice = Invoice.objects.create(
+            user=self.user,
+            lease_id=None,
+            amount=Decimal("20.00"),
+            status=InvoiceStatus.PAID,
+            description="Upfront charge for GPU Model.",
+        )
+
+        # Create user prepaid balance
+        credit = UserCredit.objects.create(user=self.user, balance=Decimal("50.00"))
+
+        payload = {
+            "type": "charge.refunded",
+            "data": {
+                "object": {
+                    "metadata": {
+                        "invoice_id": str(invoice.id),
+                    }
+                }
+            },
+        }
+
+        # Fire webhook POST request with valid mock Stripe-Signature header
+        response = self.client.post(
+            "/api/billing/webhooks/stripe/",
+            data=payload,
+            content_type="application/json",
+            headers={"Stripe-Signature": "whsec_test_secret_123"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode(), "Webhook processed successfully.")
+
+        # Assert Invoice status was updated to REFUNDED in DB (ImmediateBackend processed task instantly)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, InvoiceStatus.REFUNDED)
+        self.assertIn("Refunded via Stripe Webhook", invoice.description)
+
+        # Assert prepaid balance was refunded (50.00 + 20.00 = 70.00)
+        credit.refresh_from_db()
+        self.assertEqual(credit.balance, Decimal("70.00"))
+
+        # Verify that a SystemAlert of type 'billing' was successfully logged
+        from leases.models import SystemAlert
+
+        alert = SystemAlert.objects.filter(alert_type="billing").order_by("-created_at").first()
+        self.assertIsNotNone(alert)
+        self.assertIn("Refund processed for Invoice", alert.message)
+
+    def test_stripe_webhook_payment_failed_suspends_active_leases(self):
+        # Rent a shared RTX 4090 card
+        self.rtx_instance.status = GPUInstanceStatus.LEASED
+        self.rtx_instance.save()
+        lease = RentalLease.objects.create(
+            user=self.user,
+            gpu_instance=self.rtx_instance,
+            status=RentalLeaseStatus.ACTIVE,
+            started_at=timezone.now(),
+        )
+
+        payload = {
+            "type": "invoice.payment_failed",
+            "data": {
+                "object": {
+                    "metadata": {
+                        "user_id": str(self.user.id),
+                    }
+                }
+            },
+        }
+
+        # Fire failed payment webhook
+        response = self.client.post(
+            "/api/billing/webhooks/stripe/",
+            data=payload,
+            content_type="application/json",
+            headers={"Stripe-Signature": "whsec_test_secret_123"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        # Assert lease is suspended and physical GPU instance released back to available
+        lease.refresh_from_db()
+        self.assertEqual(lease.status, RentalLeaseStatus.SUSPENDED_PAYMENT)
+        self.rtx_instance.refresh_from_db()
+        self.assertEqual(self.rtx_instance.status, GPUInstanceStatus.AVAILABLE)
+
+        # Verify that a SystemAlert of type 'billing' was successfully logged
+        from leases.models import SystemAlert
+
+        alert = SystemAlert.objects.filter(alert_type="billing").first()
+        self.assertIsNotNone(alert)
+        self.assertIn("Payment failed webhook triggered", alert.message)

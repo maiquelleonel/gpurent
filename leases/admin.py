@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from leases.models import GPUInstance, GPUModel, MetricSnapshot, RentalLease
+from leases.models import GPUInstance, GPUModel, MetricSnapshot, RentalLease, SystemAlert
 
 
 @admin.register(GPUModel)
@@ -64,3 +64,11 @@ class MetricSnapshotAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("gpu_instance")
+
+
+@admin.register(SystemAlert)
+class SystemAlertAdmin(admin.ModelAdmin):
+    list_display = ("alert_type", "message", "is_read", "created_at")
+    list_filter = ("alert_type", "is_read", "created_at")
+    search_fields = ("message",)
+    readonly_fields = ("id", "created_at")

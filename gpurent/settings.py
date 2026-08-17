@@ -15,6 +15,8 @@ import os
 import sys
 from pathlib import Path
 
+from steady_queue.configuration import Configuration
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -42,6 +44,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third-party
     "django_warden",
+    "steady_queue",
+    "rest_framework",
+    "rest_framework.authtoken",
     # DDD Bounded Contexts
     "users",
     "billing",
@@ -64,7 +69,7 @@ ROOT_URLCONF = "gpurent.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -144,11 +149,20 @@ STATIC_URL = "static/"
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-MAILERS = {
-    "default": {
-        "BACKEND": "django.core.mail.backends.console.EmailBackend",
+if os.getenv("EMAIL_HOST"):
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "HOST": os.getenv("EMAIL_HOST", "localhost"),
+            "PORT": int(os.getenv("EMAIL_PORT", 1025)),
+        }
     }
-}
+else:
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.console.EmailBackend",
+        }
+    }
 
 # Time-Scaled Workload Simulator
 # 1 real-world minute = 2 simulated hours (default)
@@ -201,11 +215,63 @@ LOGGING = {
     },
 }
 
+# Test Runner using pytest-django
+TEST_RUNNER = "pytest_django.runner.TestRunner"
+
+# Django REST Framework configuration
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "users.authentication.APITokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}
+
+# Task Queue configurations (Django 6.0+ with steady-queue)
+TASKS = {
+    "default": {
+        "BACKEND": "steady_queue.backend.SteadyQueueBackend",
+        "QUEUES": ["default", "billing", "emails", "account_lifecycle"],
+    }
+}
+
+
+STEADY_QUEUE = Configuration.Options(
+    workers=[
+        # High Priority: Handle critical financial transactions and invoice generations
+        Configuration.Worker(
+            queues=["billing"],
+            threads=3,
+            processes=1,
+        ),
+        # Medium Priority: Handle transactional email dispatches (Mailpit SMTP)
+        Configuration.Worker(
+            queues=["emails"],
+            threads=4,
+            processes=1,
+        ),
+        # Standard/Low Priority: Handle deferred account freezing, expiry checks, and soft-deletes
+        Configuration.Worker(
+            queues=["default", "account_lifecycle"],
+            threads=2,
+            processes=1,
+        ),
+    ]
+)
+
+
 # Disable logging during unit tests to keep terminal clean and show colored test dots
 if "test" in sys.argv:
     import logging
 
     logging.disable(logging.CRITICAL)
 
-# Test Runner using pytest-django
-TEST_RUNNER = "pytest_django.runner.TestRunner"
+    # Use ImmediateBackend during tests for synchronous task execution and fast assertions
+    TASKS = {
+        "default": {
+            "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+            "QUEUES": ["default", "billing", "emails", "account_lifecycle"],
+        }
+    }

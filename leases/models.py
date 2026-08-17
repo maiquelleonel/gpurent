@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -127,3 +128,19 @@ class MetricSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"Snapshot {self.gpu_instance.serial_number} @ {self.timestamp}"
+
+
+class SystemAlert(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.TextField()
+    alert_type = models.CharField(max_length=64, db_index=True)  # ex: 'signup', 'billing', 'delete'
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = _("System Alert")
+        verbose_name_plural = _("System Alerts")
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.alert_type} Alert: {self.message[:30]}..."

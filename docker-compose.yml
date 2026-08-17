@@ -26,6 +26,14 @@ services:
       - "12111:12111"
     restart: always
 
+  # Mailpit SMTP Mail Capture service
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI port
+    restart: always
+
   # Django Web API service
   web:
     build: .
@@ -41,10 +49,14 @@ services:
       - POSTGRES_DB=gpurent
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
     depends_on:
       db:
         condition: service_healthy
       stripe-mock:
+        condition: service_started
+      mailpit:
         condition: service_started
     restart: always
 
@@ -62,10 +74,36 @@ services:
       - POSTGRES_DB=gpurent
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
     depends_on:
       db:
         condition: service_healthy
       stripe-mock:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    restart: always
+
+  # Background Queue Worker (runs the steady_queue task processor)
+  queue-worker:
+    build: .
+    command: uv run manage.py steady_queue
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - DB_HOST=db
+      - DB_PORT=5432
+      - POSTGRES_DB=gpurent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - EMAIL_HOST=mailpit
+      - EMAIL_PORT=1025
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
         condition: service_started
     restart: always
 

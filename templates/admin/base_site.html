@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></h1>
+{% endblock %}
+
+{% block nav-global %}
+  {{ block.super }}
+  <!-- HTMX Integration for Real-Time Toast Alerts inside Django Admin -->
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  
+  <!-- Stackable Bottom-Right Floating Toast Container -->
+  <div id="htmx-toast-container" 
+       style="position: fixed; bottom: 20px; right: 20px; z-index: 99999; display: flex; flex-direction: column; align-items: flex-end;"
+       hx-get="{% url 'admin_live_alerts' %}" 
+       hx-trigger="every 5s" 
+       hx-swap="beforeend">
+  </div>
+{% endblock %}
