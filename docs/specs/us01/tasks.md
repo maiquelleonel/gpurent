@@ -7,7 +7,7 @@ This document contains the physical, actionable development tasks required to co
 ## 🛠️ [x] Task 1.1: Django Project & Apps Scaffolding
 * **Description:** Initialize the Django 6.1 project structure and the `leases` domain app.
 * **Steps:**
-  - [x] 1. Initialize standard Django project named `gpurent` inside `/home/maiquel/gpurent`.
+  - [x] 1. Initialize standard Django project named `gpurent` inside `~/gpurent`.
   - [x] 2. Create a custom folder configuration structure to rename/keep settings clean.
   - [x] 3. Create the `leases` app via `manage.py startapp leases`.
   - [x] 4. Register `django_guardian` and `leases` in `INSTALLED_APPS` inside settings.

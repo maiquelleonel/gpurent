@@ -318,8 +318,8 @@ wheels = [
 
 [[package]]
 name = "django-warden"
-version = "0.1.1"
-source = { git = "https://github.com/maiquelleonel/django-warden#62e06d59a05aa0ad5e9e05c28b610c14b6e7cff6" }
+version = "0.2.0"
+source = { git = "https://github.com/maiquelleonel/django-warden#e2b84286bc1b3c56e9d818aa0ae49a1567ab83d5" }
 dependencies = [
     { name = "django" },
 ]

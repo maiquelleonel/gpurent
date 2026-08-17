@@ -133,7 +133,7 @@ To secure API access and monitor tenant usage volume, the application tracks req
 When starting the implementation:
 
 1. **Setup Environment:**
-   * Create a new Django project in `/home/maiquel/gpurent`.
+   * Create a new Django project in `~/gpurent`.
    * Install `django-guardian` and add `"django_guardian"` to `INSTALLED_APPS`.
 2. **First Run (`guardian_audit`):**
    * Run `python manage.py check` to verify that `django-guardian` checks pass and recommend packages.

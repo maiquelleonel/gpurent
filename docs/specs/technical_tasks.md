@@ -21,7 +21,7 @@ To respect DDD and segment responsibilities cleanly, we separate the platform in
    - Runs the background metrics simulations (`MetricSnapshot`) and stress agents.
 
 ```
-/home/maiquel/gpurent/
+~/gpurent/
 ├───gpurent/                     # Configuration Root (Settings, Core Routing)
 │   ├───settings.py
 │   ├───urls.py
@@ -129,7 +129,7 @@ To respect DDD and segment responsibilities cleanly, we separate the platform in
 ## 🏃‍♂️ 3. Physical Implementation Plan (Phase-by-Phase)
 
 ### Phase 1: Environment Setup & DDD Project Scaffolding
-1. Create a Django project structure in `/home/maiquel/gpurent`.
+1. Create a Django project structure in `~/gpurent`.
 2. Generate three Django applications inside the root folder: `users`, `billing`, and `leases`.
 3. Configure `gpurent/settings.py` to register `"django_guardian"` and our custom apps: `"users"`, `"billing"`, and `"leases"` in `INSTALLED_APPS`.
 4. Apply standard database migrations.
