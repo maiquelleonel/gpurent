@@ -1,0 +1,227 @@
+from decimal import Decimal
+from unittest.mock import patch
+
+import httpx
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.utils import timezone
+
+from billing.models import Invoice, InvoiceStatus, UserCredit
+from billing.services.payment_gateway import (
+    PaymentGatewayException,
+    PaymentTimeoutException,
+    process_payment,
+    process_refund,
+)
+from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, RentalLease, RentalLeaseStatus
+from leases.orchestrators.lease_flow import provision_lease
+from leases.simulation.worker import MetricsSimulatorWorker
+
+User = get_user_model()
+
+
+class BillingAndPaymentTestCase(TestCase):
+    def setUp(self):
+        # Create test user
+        self.user = User.objects.create_user(username="billinguser", password="securepassword")
+
+        # Create GPU Models
+        self.rtx_model = GPUModel.objects.create(
+            name="NVIDIA RTX 4090 (24GB)",
+            vram_capacity_gb=24,
+            price_per_hour=Decimal("0.44"),
+        )
+        self.h100_model = GPUModel.objects.create(
+            name="NVIDIA H100 (80GB SXM5)",
+            vram_capacity_gb=80,
+            price_per_hour=Decimal("4.76"),
+        )
+
+        # Create GPU Instances
+        self.rtx_instance = GPUInstance.objects.create(
+            serial_number="GPU-RTX-4090-TEST",
+            model=self.rtx_model,
+            status=GPUInstanceStatus.AVAILABLE,
+            is_dedicated=False,
+        )
+        self.h100_instance = GPUInstance.objects.create(
+            serial_number="GPU-H100-TEST",
+            model=self.h100_model,
+            status=GPUInstanceStatus.AVAILABLE,
+            is_dedicated=True,
+        )
+
+    # ==========================================
+    # US04 - TASK 4.1: PRE-PAID DEPLETION TICKER
+    # ==========================================
+    def test_prepaid_credit_depletion_auto_suspends_lease(self):
+        # Top up user pre-paid credit with exactly $1.00
+        credit = UserCredit.objects.create(user=self.user, balance=Decimal("1.00"))
+
+        # Provision a shared RTX 4090 lease
+        lease = provision_lease(self.user, self.rtx_model.id, is_dedicated=False)
+        self.assertEqual(lease.status, RentalLeaseStatus.ACTIVE)
+
+        # Confirm instance remains AVAILABLE (shared instance with < 4 leases)
+        self.rtx_instance.refresh_from_db()
+        self.assertEqual(self.rtx_instance.status, GPUInstanceStatus.AVAILABLE)
+
+        # Simulate that 3 real minutes have elapsed since start.
+        # With TIME_SCALE_FACTOR = 120, 3 real minutes = 6 simulated hours.
+        # Cost: 6 hours * $0.44 = $2.64. This exceeds the $1.00 prepaid limit!
+        lease.started_at = timezone.now() - timezone.timedelta(minutes=3)
+        lease.save(update_fields=["started_at"])
+
+        # Execute simulation tick
+        worker = MetricsSimulatorWorker()
+        simulated_count = worker.tick()
+
+        # The lease should be processed but suspended during the tick, so simulated count should be 0 (suspended)
+        self.assertEqual(simulated_count, 0)
+
+        # Verify lease status transitioned to SUSPENDED_PAYMENT
+        lease.refresh_from_db()
+        self.assertEqual(lease.status, RentalLeaseStatus.SUSPENDED_PAYMENT)
+        self.assertIsNotNone(lease.ended_at)
+
+        # Verify physical instance is released back to AVAILABLE
+        self.rtx_instance.refresh_from_db()
+        self.assertEqual(self.rtx_instance.status, GPUInstanceStatus.AVAILABLE)
+
+        # Verify prepaid credits are deducted (should have gone negative or exactly matching deduction)
+        credit.refresh_from_db()
+        # $1.00 - $2.64 = -$1.64
+        self.assertEqual(credit.balance, Decimal("-1.64"))
+
+        # Verify Invoice was created and marked as PAID (since it's a prepaid model, prepaid system settles it)
+        invoice = Invoice.objects.filter(lease_id=lease.id).first()
+        self.assertIsNotNone(invoice)
+        self.assertEqual(invoice.amount, Decimal("2.64"))
+        self.assertEqual(invoice.status, InvoiceStatus.PAID)
+
+    # ==========================================
+    # US04 - TASK 4.2: VOLUME DISCOUNT ENFORCEMENT
+    # ==========================================
+    def test_volume_discount_applied_for_six_concurrent_leases(self):
+        # Create a pre-paid user with $100.00 credit
+        UserCredit.objects.create(user=self.user, balance=Decimal("100.00"))
+
+        # Pre-create 6 additional physical RTX 4090 instances
+        instances = []
+        for i in range(1, 8):
+            inst = GPUInstance.objects.create(
+                serial_number=f"GPU-RTX-DISCOUNT-{i}",
+                model=self.rtx_model,
+                status=GPUInstanceStatus.AVAILABLE,
+                is_dedicated=False,
+            )
+            instances.append(inst)
+
+        # Create exactly 6 concurrent ACTIVE leases for the same model
+        leases = []
+        started_at = timezone.now() - timezone.timedelta(minutes=1)  # 2 simulated hours
+        for i in range(6):
+            lease = RentalLease.objects.create(
+                user=self.user,
+                gpu_instance=instances[i],
+                status=RentalLeaseStatus.ACTIVE,
+                started_at=started_at,
+            )
+            leases.append(lease)
+
+        # Execute simulation tick which invoices all of them
+        worker = MetricsSimulatorWorker()
+        simulated_count = worker.tick()
+
+        # All 6 leases simulated
+        self.assertEqual(simulated_count, 6)
+
+        # Verify volume discount was applied to all of them because count > 5 (exactly 6)
+        # Base price per hour = $0.44. Discounted by 10% = $0.396.
+        # Elapsed time = 2 simulated hours. Cost per lease = 2 * $0.396 = $0.792 -> rounded to $0.79.
+        for lease in leases:
+            lease.refresh_from_db()
+            self.assertEqual(lease.total_billed_amount, Decimal("0.79"))
+            self.assertEqual(lease.volume_discount_applied, Decimal("10.00"))
+
+            invoice = Invoice.objects.filter(lease_id=lease.id).first()
+            self.assertEqual(invoice.amount, Decimal("0.79"))
+            self.assertIn("10% Volume Discount Applied", invoice.description)
+
+    # ==========================================
+    # US04 - TASK 4.3: DEDICATED UPFRONT PAYMENT
+    # ==========================================
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_dedicated_lease_provision_success(self, mock_post):
+        # Mock payment gateway response: Success
+        mock_response = httpx.Response(status_code=200, json={"status": "succeeded"})
+        mock_post.return_return_value = mock_response  # fallback for httpx mocking
+        mock_post.return_value = mock_response
+
+        # Attempt to provision dedicated H100
+        lease = provision_lease(self.user, self.h100_model.id, is_dedicated=True, card_token="tok_visa")
+
+        # Verify lease is ACTIVE and billing amount matches the 1-hour upfront payment
+        self.assertEqual(lease.status, RentalLeaseStatus.ACTIVE)
+        self.assertEqual(lease.total_billed_amount, Decimal("4.76"))
+
+        # Verify invoice is PAID
+        invoice = Invoice.objects.filter(lease_id=lease.id).first()
+        self.assertIsNotNone(invoice)
+        self.assertEqual(invoice.amount, Decimal("4.76"))
+        self.assertEqual(invoice.status, InvoiceStatus.PAID)
+
+        # Verify physical instance is leased
+        self.h100_instance.refresh_from_db()
+        self.assertEqual(self.h100_instance.status, GPUInstanceStatus.LEASED)
+
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_dedicated_lease_provision_failed_payment_triggers_rollback(self, mock_post):
+        # Mock payment gateway response: Decline/Failed
+        mock_response = httpx.Response(status_code=402, json={"error": "card_declined"})
+        mock_post.return_value = mock_response
+
+        # Provision should fail with ValueError
+        with self.assertRaises(ValueError) as context:
+            provision_lease(self.user, self.h100_model.id, is_dedicated=True, card_token="tok_declined")
+
+        self.assertIn("Upfront dedicated payment failed", str(context.exception))
+
+        # Verify physical instance remains AVAILABLE
+        self.h100_instance.refresh_from_db()
+        self.assertEqual(self.h100_instance.status, GPUInstanceStatus.AVAILABLE)
+
+        # No leases or invoices exist for this model
+        self.assertEqual(RentalLease.objects.filter(gpu_instance=self.h100_instance).count(), 0)
+        self.assertEqual(Invoice.objects.filter(user=self.user).count(), 0)
+
+    # ==========================================
+    # US05: PAYMENT GATEWAY CLIENT AND TIMEOUTS
+    # ==========================================
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_payment_gateway_timeout_exception(self, mock_post):
+        # Mock connection timeout
+        mock_post.side_effect = httpx.TimeoutException("Connection timed out.")
+
+        with self.assertRaises(PaymentTimeoutException):
+            process_payment(self.user.id, Decimal("10.00"), "tok_visa")
+
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_payment_gateway_request_exception(self, mock_post):
+        # Mock network failure
+        mock_post.side_effect = httpx.RequestError("Network down.")
+
+        with self.assertRaises(PaymentGatewayException):
+            process_payment(self.user.id, Decimal("10.00"), "tok_visa")
+
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_refund_success(self, mock_post):
+        mock_post.return_value = httpx.Response(status_code=200, json={"status": "refunded"})
+        success = process_refund("invoice_123")
+        self.assertTrue(success)
+
+    @patch("billing.services.payment_gateway.httpx.post")
+    def test_refund_timeout_exception(self, mock_post):
+        mock_post.side_effect = httpx.TimeoutException("Timed out")
+        with self.assertRaises(PaymentTimeoutException):
+            process_refund("invoice_123")

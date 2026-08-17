@@ -1,0 +1,51 @@
+[project]
+name = "gpurent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=6.1",
+    "django-warden>=0.1.0",
+    "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.4",
+]
+
+[tool.uv.sources]
+django-warden = { git = "https://github.com/maiquelleonel/django-warden" }
+
+[dependency-groups]
+dev = [
+    "django-ai-boost>=0.9.0",
+    "pytest-django>=4.14.0",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+exclude = [
+    "**/migrations/*",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "RUF012",  # mutable class attributes (Django Meta uses lists/dicts)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gpurent", "users", "billing", "leases"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "gpurent.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+filterwarnings = [
+    "ignore::pytest.PytestAssertRewriteWarning",
+]

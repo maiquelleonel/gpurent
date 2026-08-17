@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=gpurent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gpurent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # Stripe mock service to simulate payments
+  stripe-mock:
+    image: stripe/stripe-mock:latest
+    ports:
+      - "12111:12111"
+    restart: always
+
+  # Django Web API service
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - MOCK_PAYMENT_BASE_URL=http://stripe-mock:12111
+      - DB_HOST=db
+      - DB_PORT=5432
+      - POSTGRES_DB=gpurent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      db:
+        condition: service_healthy
+      stripe-mock:
+        condition: service_started
+    restart: always
+
+  # Simulation worker service (runs the background metrics simulation loop)
+  worker:
+    build: .
+    command: uv run python manage.py run_simulation --interval 5.0
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - MOCK_PAYMENT_BASE_URL=http://stripe-mock:12111
+      - DB_HOST=db
+      - DB_PORT=5432
+      - POSTGRES_DB=gpurent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      db:
+        condition: service_healthy
+      stripe-mock:
+        condition: service_started
+    restart: always
+
+volumes:
+  pg-data:
