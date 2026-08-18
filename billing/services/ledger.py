@@ -169,3 +169,80 @@ def invoice_flat_fee(user, lease_id, amount: Decimal, description: str, is_prepa
 
     logger.info("Invoiced flat fee to user %s: %s (%s)", user.username, amount, status)
     return invoice
+
+
+def is_new_account_eligible_for_promo(user) -> bool:
+    """
+    Checks if a user is eligible for new account promotional bonuses.
+    Returns True if user has no previous invoices and no previous leases.
+    """
+    has_invoices = Invoice.objects.filter(user=user).exists()
+    has_leases = RentalLease.objects.filter(user=user).exists()
+    return not (has_invoices or has_leases)
+
+
+def purchase_prepaid_package(
+    user,
+    model: GPUModel,
+    months: int,
+    hours_per_month: int = 730,
+) -> dict:
+    """
+    Purchases a prepaid usage package for a GPUModel.
+    Awards 1 free month equivalent in credit if months >= 3 and user is a new account.
+    Volume discounts do not stack with this promotional package.
+    """
+    if months < 1:
+        raise ValueError("Months must be at least 1.")
+
+    hourly_rate = model.price_per_hour
+    base_hours = Decimal(str(months)) * Decimal(str(hours_per_month))
+    base_amount = (base_hours * hourly_rate).quantize(Decimal("0.01"))
+
+    is_eligible = is_new_account_eligible_for_promo(user)
+    bonus_applied = months >= 3 and is_eligible
+
+    if bonus_applied:
+        bonus_hours = Decimal(str(hours_per_month))
+        bonus_amount = (bonus_hours * hourly_rate).quantize(Decimal("0.01"))
+        total_credited = (base_amount + bonus_amount).quantize(Decimal("0.01"))
+        description = (
+            f"Prepaid {months}-Month Package for {model.name} (Includes 1 Free Month Promo Bonus of ${bonus_amount})"
+        )
+    else:
+        bonus_amount = Decimal("0.00")
+        total_credited = base_amount
+        description = f"Prepaid {months}-Month Package for {model.name}"
+
+    with transaction.atomic():
+        credit, _ = UserCredit.objects.select_for_update().get_or_create(user=user)
+        credit.balance = (credit.balance + total_credited).quantize(Decimal("0.01"))
+        credit.save(update_fields=["balance"])
+
+        invoice = Invoice.objects.create(
+            user=user,
+            amount=base_amount,
+            status=InvoiceStatus.PAID,
+            description=description,
+        )
+
+    logger.info(
+        "Purchased %s months package for user %s. Base: $%s, Bonus: $%s, Credited: $%s",
+        months,
+        user.username,
+        base_amount,
+        bonus_amount,
+        total_credited,
+    )
+
+    return {
+        "user_id": str(user.id),
+        "model_id": str(model.id),
+        "months_purchased": months,
+        "base_amount": base_amount,
+        "bonus_amount": bonus_amount,
+        "total_credited": total_credited,
+        "bonus_applied": bonus_applied,
+        "invoice_id": str(invoice.id),
+        "new_balance": credit.balance,
+    }

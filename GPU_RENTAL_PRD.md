@@ -72,6 +72,7 @@ The orchestrator must enforce highly specific enterprise billing strategies:
 * **Billing Tiers:**
   * **Pre-Paid Credit Tier (RTX 4090 & L4):**
     * Users consume pre-loaded balance credits. The orchestrator checks credits at every tick.
+    * **3+ Month Prepaid Bonus (1 Mês Grátis):** Usuários que realizarem a recarga/contratação pré-paga equivalente a **3 meses ou mais** recebem automaticamente uma bonificação equivalente a **1 mês adicional em créditos** adicionados diretamente ao saldo (`UserCredit.balance`).
     * **80% Depletion Alert:** When a user's consumption reaches 80% of their loaded credits, the system automatically sends a low-credit warning email.
     * **Zero Balance Freeze (Suspension):** Once the balance drops to `$0.00` or below, the account enters a "Freezing/Suspension" state, the running lease is immediately suspended, an email alert is sent, and the physical GPU is freed back to the catalog. When they load credits, the account is unfrozen, and life goes on.
   * **Post-Paid Invoiced Tier (A100 & H100):**

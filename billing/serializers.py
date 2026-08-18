@@ -15,3 +15,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = ("id", "lease_id", "amount", "status", "description", "created_at")
         read_only_fields = fields
+
+
+class PrepaidPackagePurchaseSerializer(serializers.Serializer):
+    model_id = serializers.UUIDField()
+    months = serializers.IntegerField(min_value=1, default=3)
+    hours_per_month = serializers.IntegerField(min_value=1, default=730)

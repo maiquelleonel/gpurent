@@ -5,8 +5,9 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
 
-from billing.models import UserCredit
-from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, MetricSnapshot, RentalLeaseStatus
+from billing.models import Invoice, UserCredit
+from billing.services.ledger import purchase_prepaid_package
+from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, MetricSnapshot, RentalLease, RentalLeaseStatus
 from leases.orchestrators.lease_flow import provision_lease
 from leases.orchestrators.upgrade_flow import upgrade_lease_tier
 from leases.simulation.worker import MetricsSimulatorWorker
@@ -188,6 +189,73 @@ class AbusiveAgent:
         }
 
 
+class PromoPackageAgent:
+    """
+    Persona: PromoPackageAgent
+    Purchases a 3+ month prepaid package with 1 free month bonus as a new account,
+    provisions a lease, and verifies usage billing against the promo balance.
+    """
+
+    def __init__(self, username="promopackage_agent"):
+        self.username = username
+
+    def run(self, rtx_model_id) -> dict:
+        logger.info("🎬 Starting PromoPackageAgent scenario...")
+        user, _ = User.objects.get_or_create(username=self.username)
+        # Reset user history for deterministic promo eligibility
+        RentalLease.objects.filter(user=user).delete()
+        Invoice.objects.filter(user=user).delete()
+        UserCredit.objects.filter(user=user).delete()
+
+        rtx_model = GPUModel.objects.get(id=rtx_model_id)
+
+        # 1. Purchase 3-month package as new user -> 1 free month bonus awarded
+        package_result = purchase_prepaid_package(user, rtx_model, months=3, hours_per_month=730)
+
+        # 2. Provision prepaid lease
+        lease = provision_lease(user, rtx_model_id, is_dedicated=False)
+
+        # 3. Simulate elapsed time of 1 real minute (2 simulated hours -> cost 2 * 0.44 = 0.88)
+        lease.started_at = timezone.now() - timezone.timedelta(minutes=1)
+        lease.save(update_fields=["started_at"])
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        lease.refresh_from_db()
+        credit = UserCredit.objects.get(user=user)
+
+        expected_balance = (package_result["total_credited"] - Decimal("0.88")).quantize(Decimal("0.01"))
+        success = (
+            package_result["bonus_applied"]
+            and lease.status == RentalLeaseStatus.ACTIVE
+            and credit.balance == expected_balance
+        )
+
+        # 4. Gracefully terminate lease
+        lease.status = RentalLeaseStatus.COMPLETED
+        lease.ended_at = timezone.now()
+        lease.save(update_fields=["status", "ended_at"])
+        if lease.gpu_instance:
+            lease.gpu_instance.status = GPUInstanceStatus.AVAILABLE
+            lease.gpu_instance.save(update_fields=["status"])
+
+        logger.info(
+            "PromoPackageAgent: Bonus applied=%s, Final balance=%s (Expected=%s), Lease status=%s",
+            package_result["bonus_applied"],
+            credit.balance,
+            expected_balance,
+            lease.status,
+        )
+        return {
+            "user": user,
+            "package_result": package_result,
+            "lease": lease,
+            "credit": credit,
+            "success": success,
+        }
+
+
 class AgentEngine:
     """
     Coordination engine that triggers and evaluates all programmatic client personas.
@@ -232,6 +300,7 @@ class AgentEngine:
         self.results["HappyPath"] = HappyPathAgent().run(rtx_model.id)
         self.results["Delinquent"] = DelinquentAgent().run(rtx_model.id)
         self.results["UpgradeSeeker"] = UpgradeSeekerAgent().run(l4_model.id, h100_model.id)
+        self.results["PromoPackage"] = PromoPackageAgent().run(rtx_model.id)
 
         if client:
             self.results["Abusive"] = AbusiveAgent().run(client)

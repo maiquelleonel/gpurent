@@ -50,3 +50,19 @@ This document contains the physical, actionable development tasks required to co
   - [x] 3. Write a test registering 6 concurrent RTX 4090 leases for a user and verify the 10% discount is correctly calculated.
   - [x] 4. Write a test asserting that attempting to lease a dedicated H100 with a declined payment gateway fails the orchestration process.
 * **Verification:** Run `python manage.py test billing.tests.test_billing_rules` and ensure all tests pass.
+
+---
+
+## 🛠️ [x] Task 4.5: 3+ Month Prepaid Package Bonus (1 Free Month)
+* **Description:** Award 1 free month equivalent in balance credits to new accounts purchasing 3+ months prepaid packages.
+* **Steps:**
+  - [x] 1. Implement `purchase_prepaid_package` service in `billing/services/ledger.py` or dedicated package handler.
+  - [x] 2. Validate eligibility: check that the user is a new account (no prior invoices or leases).
+  - [x] 3. If months contracted >= 3:
+     - Calculate base package cost: `hours_per_month (730h) * months * hourly_rate`.
+     - Calculate bonus: exactly 1 fixed month equivalent (`730h * hourly_rate`).
+     - Credit total amount (`base_amount + bonus_amount`) into `UserCredit.balance`.
+     - Generate an `Invoice` with detailed breakdown (e.g. "Prepaid 3-Month Package + 1 Month Free Promo Bonus").
+  - [x] 4. Enforce non-stacking rule: ensure volume discount is not applied in conjunction with the 3+ month promotional package.
+  - [x] 5. Write comprehensive unit tests in `billing/tests/test_billing_rules.py` validating package purchase, bonus calculation, new account restriction, and non-stacking.
+* **Verification:** Run `python manage.py test billing.tests` to verify bonus math, single-claim restriction, and migration balance preservation.

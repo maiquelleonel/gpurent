@@ -137,9 +137,10 @@ To respect DDD and segment responsibilities cleanly, we separate the platform in
 
 ### Phase 2: Domain Logic Isolation & Interface Bridges
 To maintain DDD integrity, communications between Bounded Contexts are isolated:
-1. **Billing Interface Bridge:** The `billing` app exposes pricing, balance checks, and invoice processing.
-2. **Lease Lifecycle Actions:** The `leases` app queries the `billing` interface before transitioning to `ACTIVE` (checking if pre-paid clients have credit or dedicated instances have upfront validation).
-3. **Credit Decrement Rules:** The background metric simulation worker in the `leases` app triggers billing balance checks and decrements via the `billing` ledger service on every simulation tick.
+1. **Billing Interface Bridge:** The `billing` app exposes pricing, balance checks, invoice processing, and package purchases (`purchase_prepaid_package`).
+2. **Prepaid Package Bonus (3+ Months):** New accounts purchasing 3+ months prepaid packages receive 1 fixed month equivalent of credit directly in their balance; volume discounts do not stack with this promotional acquisition bonus.
+3. **Lease Lifecycle Actions:** The `leases` app queries the `billing` interface before transitioning to `ACTIVE` (checking if pre-paid clients have credit or dedicated instances have upfront validation).
+4. **Credit Decrement Rules:** The background metric simulation worker in the `leases` app triggers billing balance checks and decrements via the `billing` ledger service on every simulation tick.
 
 ### Phase 3: Background Worker & Time-Scaled Math (`leases/simulation/worker.py`)
 1. Implement background thread-pool that queries active leases periodically (every 5 seconds).

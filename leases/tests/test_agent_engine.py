@@ -40,5 +40,8 @@ class AgentEngineTestCase(TestCase):
         self.assertIn("UpgradeSeeker", engine.results)
         self.assertTrue(engine.results["UpgradeSeeker"]["success"])
 
+        self.assertIn("PromoPackage", engine.results)
+        self.assertTrue(engine.results["PromoPackage"]["success"])
+
         self.assertIn("Abusive", engine.results)
         self.assertTrue(engine.results["Abusive"]["success"])

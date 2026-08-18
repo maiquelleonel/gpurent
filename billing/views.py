@@ -10,7 +10,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from billing.models import Invoice, UserCredit
-from billing.serializers import InvoiceSerializer, UserCreditSerializer
+from billing.serializers import InvoiceSerializer, PrepaidPackagePurchaseSerializer, UserCreditSerializer
+from billing.services.ledger import purchase_prepaid_package
+from leases.models import GPUModel
 from users.tasks import process_webhook_payment_failed_task, process_webhook_refund_task
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,28 @@ class BillingViewSet(viewsets.ViewSet):
         invoices_qs = Invoice.objects.filter(user=request.user).order_by("-created_at")
         serializer = InvoiceSerializer(invoices_qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="purchase-package")
+    def purchase_package(self, request):
+        """
+        Purchases a multi-month prepaid package, applying 1 free month bonus for 3+ months on new accounts.
+        """
+        serializer = PrepaidPackagePurchaseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            model = GPUModel.objects.get(id=data["model_id"])
+        except GPUModel.DoesNotExist:
+            return Response({"error": "GPUModel not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        result = purchase_prepaid_package(
+            user=request.user,
+            model=model,
+            months=data["months"],
+            hours_per_month=data.get("hours_per_month", 730),
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 @csrf_exempt

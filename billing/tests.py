@@ -498,3 +498,85 @@ class BillingAndPaymentTestCase(TestCase):
         self.assertIsNotNone(unfreeze_fee_invoice)
         self.assertEqual(unfreeze_fee_invoice.amount, Decimal("25.00"))
         self.assertEqual(unfreeze_fee_invoice.status, InvoiceStatus.UNPAID)
+
+    # ==========================================
+    # US04 - TASK 4.5: 3+ MONTH PREPAID PACKAGE BONUS
+    # ==========================================
+    def test_prepaid_package_three_months_awards_one_month_bonus_for_new_user(self):
+        from billing.services.ledger import purchase_prepaid_package
+
+        new_user = User.objects.create_user(username="newpromo_user", password="securepassword")
+
+        # Purchase 3-month package on RTX 4090 ($0.44/h * 730h * 3 = $963.60)
+        res = purchase_prepaid_package(new_user, self.rtx_model, months=3, hours_per_month=730)
+
+        self.assertTrue(res["bonus_applied"])
+        self.assertEqual(res["base_amount"], Decimal("963.60"))
+        self.assertEqual(res["bonus_amount"], Decimal("321.20"))  # 1 month = 730h * $0.44
+        self.assertEqual(res["total_credited"], Decimal("1284.80"))
+
+        credit = UserCredit.objects.get(user=new_user)
+        self.assertEqual(credit.balance, Decimal("1284.80"))
+
+        invoice = Invoice.objects.get(id=res["invoice_id"])
+        self.assertEqual(invoice.amount, Decimal("963.60"))
+        self.assertEqual(invoice.status, InvoiceStatus.PAID)
+        self.assertIn("Includes 1 Free Month Promo Bonus", invoice.description)
+
+    def test_prepaid_package_under_three_months_no_bonus(self):
+        from billing.services.ledger import purchase_prepaid_package
+
+        new_user = User.objects.create_user(username="twomonth_user", password="securepassword")
+        res = purchase_prepaid_package(new_user, self.rtx_model, months=2, hours_per_month=730)
+
+        self.assertFalse(res["bonus_applied"])
+        self.assertEqual(res["base_amount"], Decimal("642.40"))
+        self.assertEqual(res["bonus_amount"], Decimal("0.00"))
+        self.assertEqual(res["total_credited"], Decimal("642.40"))
+
+        credit = UserCredit.objects.get(user=new_user)
+        self.assertEqual(credit.balance, Decimal("642.40"))
+
+    def test_prepaid_package_six_months_awards_one_fixed_month_bonus(self):
+        from billing.services.ledger import purchase_prepaid_package
+
+        new_user = User.objects.create_user(username="sixmonth_user", password="securepassword")
+        res = purchase_prepaid_package(new_user, self.rtx_model, months=6, hours_per_month=730)
+
+        self.assertTrue(res["bonus_applied"])
+        self.assertEqual(res["base_amount"], Decimal("1927.20"))
+        self.assertEqual(res["bonus_amount"], Decimal("321.20"))  # 1 fixed month
+        self.assertEqual(res["total_credited"], Decimal("2248.40"))
+
+    def test_prepaid_package_existing_user_ineligible_for_promo_bonus(self):
+        from billing.services.ledger import purchase_prepaid_package
+
+        # self.user already has prior test activity / we can create an existing invoice
+        Invoice.objects.create(
+            user=self.user,
+            amount=Decimal("10.00"),
+            status=InvoiceStatus.PAID,
+            description="Existing invoice",
+        )
+
+        res = purchase_prepaid_package(self.user, self.rtx_model, months=3, hours_per_month=730)
+        self.assertFalse(res["bonus_applied"])
+        self.assertEqual(res["bonus_amount"], Decimal("0.00"))
+        self.assertEqual(res["base_amount"], Decimal("963.60"))
+        self.assertEqual(res["total_credited"], Decimal("963.60"))
+
+    def test_prepaid_package_api_endpoint(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        promo_user = User.objects.create_user(username="api_promo_user", password="securepassword")
+        client.force_authenticate(user=promo_user)
+
+        response = client.post(
+            "/api/v1/billing/purchase-package/",
+            {"model_id": str(self.rtx_model.id), "months": 3, "hours_per_month": 730},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["bonus_applied"])
+        self.assertEqual(response.data["bonus_amount"], Decimal("321.20"))

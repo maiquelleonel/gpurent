@@ -80,6 +80,7 @@ This document describes the business-centric User Stories derived from the Produ
    - Users consume a pre-loaded balance.
    - Checked at every metric tick.
    - If credits hit $0, the instance is immediately shut down and marked as `SUSPENDED_PAYMENT`.
+   - **3+ Month Bonus:** Prepaid contracts or bulk recharges for 3 months or more grant 1 extra month equivalent in credit balance automatically.
 2. **Post-Paid Invoiced Tier (A100 & H100):**
    - Users accumulate usage on a monthly deferred invoice model.
 3. **Dedicated Upfront Payment (Is Dedicated = True):**
