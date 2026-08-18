@@ -18,7 +18,7 @@ makemigrations:
 
 # Run development server
 dev:
-    uv run manage.py runserver
+    uv run honcho start
 
 # Run simulation worker
 run_simulation:

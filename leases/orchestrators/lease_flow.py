@@ -1,113 +1,144 @@
 import logging
 from decimal import Decimal
 
-from django.db import transaction
 from django.utils import timezone
 
 from billing.models import Invoice, InvoiceStatus, UserCredit
 from billing.services.payment_gateway import process_payment
+from gpurent.core.orchestrators import BaseOrchestrator
 from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, RentalLease, RentalLeaseStatus
 
 logger = logging.getLogger(__name__)
 
 
-def provision_lease(user, gpu_model_id, is_dedicated: bool = False, card_token: str = None) -> RentalLease:
+class LeaseProvisioningOrchestrator(BaseOrchestrator[RentalLease]):
     """
-    Provisions a new GPU Rental Lease.
-    If the requested GPU is dedicated (is_dedicated=True), enforces upfront payment processing
-    against the local payment mock gateway before activating the lease.
+    Object-Oriented Orchestrator that manages the process of provisioning a new GPU lease.
+    Inherits from the core BaseOrchestrator Shared Kernel to guarantee transaction safety,
+    standardized logging, and DRY compliance.
     """
-    with transaction.atomic():
-        try:
-            model = GPUModel.objects.get(pk=gpu_model_id)
-        except GPUModel.DoesNotExist as e:
-            raise ValueError(f"GPU Model with ID {gpu_model_id} does not exist.") from e
 
+    def __init__(self, user, gpu_model_id, is_dedicated: bool = False, card_token: str = None):
+        self.user = user
+        self.gpu_model_id = gpu_model_id
+        self.is_dedicated = is_dedicated
+        self.card_token = card_token
+        self.model = None
+        self.gpu_instance = None
+        self.lease = None
+
+    def run(self) -> RentalLease:
+        self._fetch_and_validate_model()
+        self._check_prepaid_credits()
+        self._allocate_physical_resource()
+        self._audit_and_reserve_instance()
+        self._create_lease()
+        self._process_upfront_payment_or_activate()
+        return self.lease
+
+    def _fetch_and_validate_model(self):
+        try:
+            self.model = GPUModel.objects.get(pk=self.gpu_model_id)
+        except GPUModel.DoesNotExist as e:
+            raise ValueError(f"GPU Model with ID {self.gpu_model_id} does not exist.") from e
+
+    def _check_prepaid_credits(self):
         # Check pre-paid credit limits if it's a pre-paid model family
-        is_prepaid = model.name.startswith("NVIDIA RTX") or model.name.startswith("NVIDIA L4")
+        is_prepaid = self.model.name.startswith("NVIDIA RTX") or self.model.name.startswith("NVIDIA L4")
         if is_prepaid:
-            credit, _ = UserCredit.objects.select_for_update().get_or_create(user=user)
+            credit, _ = UserCredit.objects.select_for_update().get_or_create(user=self.user)
             if credit.balance <= Decimal("0.00"):
                 raise ValueError("Insufficient pre-paid credits to initiate lease. Please top up your balance.")
 
+    def _allocate_physical_resource(self):
         # Find an available physical instance matching model and dedication requirement
-        gpu_instance = GPUInstance.objects.filter(
-            model=model,
+        self.gpu_instance = GPUInstance.objects.filter(
+            model=self.model,
             status=GPUInstanceStatus.AVAILABLE,
-            is_dedicated=is_dedicated,
+            is_dedicated=self.is_dedicated,
         ).first()
 
-        if not gpu_instance:
-            raise ValueError(f"No available physical GPU instances for model {model.name} (Dedicated: {is_dedicated}).")
+        if not self.gpu_instance:
+            raise ValueError(
+                f"No available physical GPU instances for model {self.model.name} (Dedicated: {self.is_dedicated})."
+            )
 
+    def _audit_and_reserve_instance(self):
         # Reserve and audit physical instance
-        if is_dedicated:
+        if self.is_dedicated:
             # Dedicated Isolation Auditor: Enforce strict single-tenant allocation
             active_count = RentalLease.objects.filter(
-                gpu_instance=gpu_instance, status=RentalLeaseStatus.ACTIVE
+                gpu_instance=self.gpu_instance, status=RentalLeaseStatus.ACTIVE
             ).count()
             if active_count > 0:
-                raise ValueError(f"Dedicated GPU instance {gpu_instance.serial_number} is already active.")
-            gpu_instance.status = GPUInstanceStatus.LEASED
-            gpu_instance.save(update_fields=["status"])
+                raise ValueError(f"Dedicated GPU instance {self.gpu_instance.serial_number} is already active.")
+            self.gpu_instance.status = GPUInstanceStatus.LEASED
+            self.gpu_instance.save(update_fields=["status"])
         else:
             # Shared Concurrency Auditor: Limit shared physical cards to maximum 4 active tenants
             active_count = RentalLease.objects.filter(
-                gpu_instance=gpu_instance, status=RentalLeaseStatus.ACTIVE
+                gpu_instance=self.gpu_instance, status=RentalLeaseStatus.ACTIVE
             ).count()
             if active_count >= 4:
-                raise ValueError(f"Shared GPU instance {gpu_instance.serial_number} has reached max capacity.")
+                raise ValueError(f"Shared GPU instance {self.gpu_instance.serial_number} has reached max capacity.")
             elif active_count == 3:
                 # This lease will be the 4th active lease, marking instance as fully LEASED (occupied)
-                gpu_instance.status = GPUInstanceStatus.LEASED
-                gpu_instance.save(update_fields=["status"])
+                self.gpu_instance.status = GPUInstanceStatus.LEASED
+                self.gpu_instance.save(update_fields=["status"])
             else:
                 # Keep instance status as AVAILABLE to accept more tenants
-                gpu_instance.status = GPUInstanceStatus.AVAILABLE
-                gpu_instance.save(update_fields=["status"])
+                self.gpu_instance.status = GPUInstanceStatus.AVAILABLE
+                self.gpu_instance.save(update_fields=["status"])
 
+    def _create_lease(self):
         # Create the RentalLease row in PROVISIONING state
         now = timezone.now()
-        lease = RentalLease.objects.create(
-            user=user,
-            gpu_instance=gpu_instance,
+        self.lease = RentalLease.objects.create(
+            user=self.user,
+            gpu_instance=self.gpu_instance,
             status=RentalLeaseStatus.PROVISIONING,
             started_at=now,
         )
 
-        if is_dedicated:
+    def _process_upfront_payment_or_activate(self):
+        if self.is_dedicated:
             # Enforce upfront payment for dedicated instances
             # We charge the hourly rate for the first hour as the upfront payment amount
-            upfront_amount = model.price_per_hour
-            if not card_token:
-                card_token = "tok_visa"  # Default mock token if none supplied
+            upfront_amount = self.model.price_per_hour
+            token = self.card_token if self.card_token else "tok_visa"
 
             # Call mock gateway client
-            payment_status = process_payment(user.id, upfront_amount, card_token)
+            payment_status = process_payment(self.user.id, upfront_amount, token)
 
             if payment_status == "PAID":
                 # Create paid invoice
                 Invoice.objects.create(
-                    user=user,
-                    lease_id=lease.id,
+                    user=self.user,
+                    lease_id=self.lease.id,
                     amount=upfront_amount,
                     status=InvoiceStatus.PAID,
-                    description=f"Pre-paid upfront deposit for Dedicated {model.name} lease.",
+                    description=f"Pre-paid upfront deposit for Dedicated {self.model.name} lease.",
                 )
                 # Activate lease
-                lease.status = RentalLeaseStatus.ACTIVE
-                lease.total_billed_amount = upfront_amount
-                lease.save(update_fields=["status", "total_billed_amount"])
-                logger.info("Successfully provisioned and activated dedicated lease %s.", lease.id)
+                self.lease.status = RentalLeaseStatus.ACTIVE
+                self.lease.total_billed_amount = upfront_amount
+                self.lease.save(update_fields=["status", "total_billed_amount"])
+                logger.info("Successfully provisioned and activated dedicated lease %s.", self.lease.id)
             else:
                 # Release physical card and fail lease
-                gpu_instance.status = GPUInstanceStatus.AVAILABLE
-                gpu_instance.save(update_fields=["status"])
+                self.gpu_instance.status = GPUInstanceStatus.AVAILABLE
+                self.gpu_instance.save(update_fields=["status"])
                 raise ValueError("Upfront dedicated payment failed. Card declined.")
         else:
             # Shared instance: directly activate
-            lease.status = RentalLeaseStatus.ACTIVE
-            lease.save(update_fields=["status"])
-            logger.info("Successfully provisioned and activated shared lease %s.", lease.id)
+            self.lease.status = RentalLeaseStatus.ACTIVE
+            self.lease.save(update_fields=["status"])
+            logger.info("Successfully provisioned and activated shared lease %s.", self.lease.id)
 
-        return lease
+
+def provision_lease(user, gpu_model_id, is_dedicated: bool = False, card_token: str = None) -> RentalLease:
+    """
+    Provisions a new GPU Rental Lease.
+    Procedural wrapper that delegates to LeaseProvisioningOrchestrator for elegant DDD design.
+    """
+    return LeaseProvisioningOrchestrator(user, gpu_model_id, is_dedicated, card_token).execute()

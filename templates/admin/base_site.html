@@ -11,12 +11,31 @@
   {{ block.super }}
   <!-- HTMX Integration for Real-Time Toast Alerts inside Django Admin -->
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-  
+
   <!-- Stackable Bottom-Right Floating Toast Container -->
-  <div id="htmx-toast-container" 
-       style="position: fixed; bottom: 20px; right: 20px; z-index: 99999; display: flex; flex-direction: column; align-items: flex-end;"
-       hx-get="{% url 'admin_live_alerts' %}" 
-       hx-trigger="every 5s" 
+  <div id="htmx-toast-container"
+       style="position: fixed; bottom: 20px; right: 20px; z-index: 99999; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; box-sizing: border-box;"
+       hx-get="{% url 'admin_live_alerts' %}"
+       hx-trigger="every 5s"
        hx-swap="beforeend">
   </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      var container = document.getElementById("htmx-toast-container");
+      var filterSidebar = document.getElementById("changelist-filter");
+      if (container && filterSidebar) {
+        // Relocate container to the bottom of the filter sidebar
+        container.style.position = "relative";
+        container.style.bottom = "auto";
+        container.style.right = "auto";
+        container.style.zIndex = "auto";
+        container.style.display = "block";
+        container.style.margin = "20px 15px 15px 15px";
+        container.style.width = "auto";
+        container.style.maxWidth = "calc(100% - 30px)";
+        filterSidebar.appendChild(container);
+      }
+    });
+  </script>
 {% endblock %}

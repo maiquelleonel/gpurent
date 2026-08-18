@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -10,7 +11,10 @@ from django.utils.translation import gettext_lazy as _
 class UserCredit(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="credit")
-    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    frozen_prepaid_balance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    starting_balance = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    low_credit_alert_sent = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -19,6 +23,20 @@ class UserCredit(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.username} - {self.balance}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            if self.starting_balance == Decimal("0.00"):
+                self.starting_balance = self.balance
+        else:
+            try:
+                orig = UserCredit.objects.get(pk=self.pk)
+                if self.balance > orig.balance:
+                    self.starting_balance = self.balance
+                    self.low_credit_alert_sent = False
+            except UserCredit.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
 
 class InvoiceStatus(models.TextChoices):

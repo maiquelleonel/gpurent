@@ -20,6 +20,7 @@ django-warden = { git = "https://github.com/maiquelleonel/django-warden" }
 dev = [
     "django-ai-boost>=0.9.0",
     "pytest-django>=4.14.0",
+    "honcho>=1.1.0",
 ]
 
 [tool.ruff]

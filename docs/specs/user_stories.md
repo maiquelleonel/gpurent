@@ -181,3 +181,23 @@ This document describes the business-centric User Stories derived from the Produ
 
 ### Compliance Metrics
 * **Execution Logs:** Generates distinct, trackable audit reports proving correct state validation across all scenarios.
+
+---
+
+## US10: Unified Prepaid/Postpaid Billing Adjustments
+
+**As a** platform product owner  
+**I want to** implement cohesive prepaid balance depletion alerts, plan transitions with frozen credit deductions, flat-fee deductions, and postpaid late-payment grace periods with unfreeze fees  
+**So that** our business models are robust, safe, and protect both the customer experience and infrastructure revenue.
+
+### Acceptance Criteria
+1. **Pre-Paid 80% Alert:** In the prepaid tier, when a user's consumption reaches 80% of their starting credits, the system automatically sends a low-credit warning email.
+2. **Pre-Paid Freeze:** Once the prepaid balance reaches `$0.00` or below, the account enters a "Freezing/Suspension" state, the lease is immediately suspended, an email alert is sent, and the physical GPU is freed back to the catalog.
+3. **Plan Transitions (Upgrade Pre -> Post):** On upgrade from a prepaid GPU (RTX/L4) to a postpaid GPU (A100/H100), the user's available prepaid credit balance is **frozen**. At the end of the billing period, this frozen credit is deducted from their final postpaid invoice.
+4. **Flat-Fee Deductions:** Any flat fees (like the `$15.00` tier swap fee) are instantly paid and deducted from the user's prepaid credits if they have positive balance.
+5. **Post-Paid 5-Day Grace Period:** Postpaid invoices must be paid within **5 days** of consumption.
+6. **Post-Paid Late Payment Freeze & Unfreeze Fee:** If a postpaid invoice remains unpaid for more than 5 days, the account is frozen/suspended, the active lease is terminated, and a standard unfreeze fee is added to their outstanding bill.
+
+### Compliance Metrics
+* **DRY Architecture:** Standardizes processing across the `BaseOrchestrator` clean-architecture layer.
+* **100% Code Coverage:** Fully tested with unit tests mocking time offsets to guarantee deterministic calculations.

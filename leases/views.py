@@ -116,7 +116,7 @@ class LeaseViewSet(viewsets.ViewSet):
 def admin_live_alerts_endpoint(request):
     """
     HTMX polling endpoint for real-time stackable toast admin notifications.
-    Fetches all unread SystemAlert records, formats them as Bootstrap toast HTML,
+    Fetches all unread SystemAlert records, formats them as beautiful yellow Django-styled alerts,
     marks them as read in the DB, and returns the HTML fragment.
     """
     unread_alerts = SystemAlert.objects.filter(is_read=False).order_by("created_at")
@@ -127,36 +127,51 @@ def admin_live_alerts_endpoint(request):
 
     html_fragments = []
     for alert in unread_alerts:
-        # Create standard Bootstrap Toast HTML
-        bg_color = "bg-primary"
+        # Determine specific alert title prefix, icon and colors
+        alert_icon = "💵"
+        alert_title = "SYSTEM NOTICE"
+        border_color = "#ca8a04"  # yellow-600
+        bg_color = "#fef9c3"  # yellow-100
+
         if alert.alert_type == "delete":
-            bg_color = "bg-danger"
+            alert_icon = "❌"
+            alert_title = "SYSTEM DELETED"
+            border_color = "#dc2626"  # red-600
+            bg_color = "#fee2e2"  # red-100
         elif alert.alert_type == "billing":
-            bg_color = "bg-success"
+            alert_icon = "💵"
+            alert_title = "BILLING NOTICE"
+            border_color = "#16a34a"  # green-600
+            bg_color = "#dcfce7"  # green-100
+        elif alert.alert_type == "thermal":
+            alert_icon = "🔥"
+            alert_title = "THERMAL WATCHDOG"
+            border_color = "#ea580c"  # orange-600
+            bg_color = "#ffedd5"  # orange-100
 
         toast_html = f"""
-        <div class="toast show align-items-center text-white {bg_color} border-0 mb-2 shadow"
-             role="alert" aria-live="assertive" aria-atomic="true"
-             style="min-width: 250px; transition: opacity 0.5s ease-out;">
-          <div class="d-flex">
-            <div class="toast-body">
-              <strong>{alert.alert_type.upper()}:</strong> {alert.message}
-            </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto"
-                    data-bs-dismiss="toast" aria-label="Close"
-                    onclick="this.closest('.toast').remove();"></button>
+        <div class="django-admin-alert"
+             style="box-sizing: border-box; width: 100%; max-width: 240px; background-color: {bg_color}; border: 1px solid {border_color}; color: #000000; padding: 12px; font-family: 'Roboto', 'Lucida Grande', 'DejaVu Sans', 'Bitstream Vera Sans', Verdana, Arial, sans-serif; font-size: 13px; line-height: 1.5; transition: opacity 0.5s ease-out; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 5px solid {border_color};">
+          <div style="font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px;">
+            <span style="display: flex; align-items: center; gap: 4px;">{alert_icon} {alert_title}</span>
+            <span style="cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1;" onclick="var toast=this.closest('.django-admin-alert'); toast.style.opacity='0'; setTimeout(function(){{ toast.remove(); }}, 500);">&times;</span>
           </div>
+          <div style="word-wrap: break-word;">{alert.message}</div>
+          <script>
+            // Automatic fade-out and self-destruction after 4 seconds
+            (function() {{
+              var alertEl = document.currentScript.parentNode;
+              setTimeout(function() {{
+                if (alertEl) {{
+                  alertEl.style.opacity = '0';
+                  setTimeout(function() {{
+                    alertEl.remove();
+                  }}, 500);
+                }}
+              }}, 4000);
+            }})();
+          </script>
         </div>
-        <script>
-          // Automatic fade-out and self-destruction after 4 seconds
-          setTimeout(function() {{
-            var toast = document.currentScript.previousElementSibling;
-            if (toast) {{
-              toast.style.opacity = '0';
-              setTimeout(function() {{ toast.remove(); }}, 500);
-            }}
-          }}, 4000);
-        </script>
         """
         html_fragments.append(toast_html)
         alert.is_read = True

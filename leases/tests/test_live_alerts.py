@@ -47,8 +47,9 @@ class LiveAlertsTestCase(TestCase):
         html_content = response.content.decode()
         self.assertIn("New tenant registered: testuser", html_content)
         self.assertIn("Invoice #123 generated: $15.00", html_content)
-        self.assertIn("bg-primary", html_content)  # signup color
-        self.assertIn("bg-success", html_content)  # billing color
+        self.assertIn("django-admin-alert", html_content)
+        self.assertIn("#fef9c3", html_content)  # default warm yellow bg for signup alert
+        self.assertIn("#dcfce7", html_content)  # green bg for billing alert
         self.assertIn("setTimeout", html_content)  # auto-destruction script
 
         # Verify that both alerts are now marked as read in database

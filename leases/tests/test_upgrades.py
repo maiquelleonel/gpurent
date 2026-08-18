@@ -106,13 +106,13 @@ class UpgradeFlowTestCase(TestCase):
 
         fee_invoice = invoices[1]
         self.assertEqual(fee_invoice.amount, Decimal("15.00"))
-        self.assertEqual(fee_invoice.status, InvoiceStatus.UNPAID)  # Unpaid because H100 target is postpaid
+        self.assertEqual(fee_invoice.status, InvoiceStatus.PAID)  # Paid instantly because user had credits
 
-        # Verify Prepaid Credit deduction
+        # Verify Prepaid Credit deduction and freezing
         self.credit.refresh_from_db()
-        # Initial $100.00 - accrued usage $0.88 = $99.12
-        # (Tier swap fee of $15.00 is UNPAID deferred postpaid invoice, so not deducted from pre-paid balance)
-        self.assertEqual(self.credit.balance, Decimal("99.12"))
+        # Initial $100.00 - accrued usage $0.88 - tier swap fee $15.00 = $84.12, which is frozen
+        self.assertEqual(self.credit.balance, Decimal("0.00"))
+        self.assertEqual(self.credit.frozen_prepaid_balance, Decimal("84.12"))
 
     def test_vram_scaling_success(self):
         # 1. Create active lease on A100 40GB (postpaid source, $1.21/hour)
@@ -149,11 +149,11 @@ class UpgradeFlowTestCase(TestCase):
 
         fee_invoice = invoices[1]
         self.assertEqual(fee_invoice.amount, Decimal("5.00"))
-        self.assertEqual(fee_invoice.status, InvoiceStatus.UNPAID)
+        self.assertEqual(fee_invoice.status, InvoiceStatus.PAID)
 
-        # User credits should be untouched since both models are postpaid
+        # User credits should be updated since the flat fee is instantly paid
         self.credit.refresh_from_db()
-        self.assertEqual(self.credit.balance, Decimal("100.00"))
+        self.assertEqual(self.credit.balance, Decimal("95.00"))
 
     def test_transaction_rollback_on_allocation_failure(self):
         # 1. Create active lease on RTX 4090

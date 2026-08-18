@@ -341,3 +341,160 @@ class BillingAndPaymentTestCase(TestCase):
         alert = SystemAlert.objects.filter(alert_type="billing").first()
         self.assertIsNotNone(alert)
         self.assertIn("Payment failed webhook triggered", alert.message)
+
+    # ==========================================
+    # US10: UNIFIED PREPAID/POSTPAID BILLING ADJUSTMENTS
+    # ==========================================
+    def test_prepaid_eighty_percent_warning(self):
+        from django.core import mail
+
+        mail.outbox = []
+
+        credit = UserCredit.objects.create(user=self.user, balance=Decimal("100.00"))
+        self.assertEqual(credit.starting_balance, Decimal("100.00"))
+
+        lease = provision_lease(self.user, self.rtx_model.id, is_dedicated=False)
+        self.assertEqual(lease.status, RentalLeaseStatus.ACTIVE)
+
+        # 1. First deduction of $5.00 (95% remaining, no alert)
+        lease.started_at = timezone.now() - timezone.timedelta(minutes=6)
+        lease.save(update_fields=["started_at"])
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        credit.refresh_from_db()
+        self.assertTrue(credit.balance > Decimal("20.00"))
+        warnings_first = [m for m in mail.outbox if "Low Prepaid Credit Warning" in m.subject]
+        self.assertEqual(len(warnings_first), 0)
+
+        # 2. Large deduction that drops balance to <= $20.00 (representing >= 80% depletion)
+        lease.started_at = timezone.now() - timezone.timedelta(minutes=100)
+        lease.save(update_fields=["started_at"])
+
+        worker.tick()
+
+        credit.refresh_from_db()
+        self.assertTrue(credit.balance <= Decimal("20.00"))
+        self.assertTrue(credit.low_credit_alert_sent)
+
+        warnings = [m for m in mail.outbox if "Low Prepaid Credit Warning" in m.subject]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("consumed 80% or more", warnings[0].body)
+
+    def test_pre_to_post_upgrade_freezes_credit_and_abates_final_invoice(self):
+        l4_model = GPUModel.objects.create(
+            name="NVIDIA L4 (24GB)",
+            vram_capacity_gb=24,
+            price_per_hour=Decimal("0.50"),
+        )
+        l4_instance = GPUInstance.objects.create(
+            serial_number="GPU-L4-UPGRADE-TEST",
+            model=l4_model,
+            status=GPUInstanceStatus.AVAILABLE,
+            is_dedicated=False,
+        )
+
+        credit = UserCredit.objects.create(user=self.user, balance=Decimal("50.00"))
+
+        lease = provision_lease(self.user, l4_model.id, is_dedicated=False)
+        self.assertEqual(lease.status, RentalLeaseStatus.ACTIVE)
+
+        from leases.orchestrators.upgrade_flow import upgrade_lease_tier
+
+        upgraded_lease = upgrade_lease_tier(lease.id, self.h100_model.id)
+
+        self.assertEqual(upgraded_lease.gpu_instance.model, self.h100_model)
+
+        credit.refresh_from_db()
+        self.assertEqual(credit.frozen_prepaid_balance, Decimal("35.00"))
+        self.assertEqual(credit.balance, Decimal("0.00"))
+
+        # Subsequent postpaid invoice is abated
+        upgraded_lease.started_at = timezone.now() - timezone.timedelta(minutes=5)
+        upgraded_lease.save(update_fields=["started_at"])
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        invoice = (
+            Invoice.objects.filter(lease_id=upgraded_lease.id, description__contains="Usage invoice")
+            .order_by("-created_at")
+            .first()
+        )
+        self.assertIsNotNone(invoice)
+        self.assertEqual(invoice.amount, Decimal("12.60"))
+        self.assertEqual(invoice.status, InvoiceStatus.UNPAID)
+        self.assertIn("Abated", invoice.description)
+
+        credit.refresh_from_db()
+        self.assertEqual(credit.frozen_prepaid_balance, Decimal("0.00"))
+
+    def test_flat_fees_instantly_paid_by_prepaid_balance(self):
+        l4_model = GPUModel.objects.create(
+            name="NVIDIA L4 (24GB)",
+            vram_capacity_gb=24,
+            price_per_hour=Decimal("0.50"),
+        )
+        l4_instance = GPUInstance.objects.create(
+            serial_number="GPU-L4-FLAT-FEE-TEST",
+            model=l4_model,
+            status=GPUInstanceStatus.AVAILABLE,
+            is_dedicated=False,
+        )
+
+        credit = UserCredit.objects.create(user=self.user, balance=Decimal("50.00"))
+
+        lease = provision_lease(self.user, l4_model.id, is_dedicated=False)
+
+        from leases.orchestrators.upgrade_flow import upgrade_lease_tier
+
+        upgrade_lease_tier(lease.id, self.h100_model.id)
+
+        invoice = Invoice.objects.filter(lease_id=lease.id, description__contains="Flat upgrade charge").first()
+        self.assertIsNotNone(invoice)
+        self.assertEqual(invoice.amount, Decimal("15.00"))
+        self.assertEqual(invoice.status, InvoiceStatus.PAID)
+
+        credit.refresh_from_db()
+        self.assertEqual(credit.frozen_prepaid_balance, Decimal("35.00"))
+
+    def test_postpaid_grace_period_enforcement(self):
+        from users.models import TenantProfile
+
+        self.h100_instance.status = GPUInstanceStatus.LEASED
+        self.h100_instance.save()
+        lease = RentalLease.objects.create(
+            user=self.user,
+            gpu_instance=self.h100_instance,
+            status=RentalLeaseStatus.ACTIVE,
+            started_at=timezone.now(),
+        )
+
+        invoice = Invoice.objects.create(
+            user=self.user,
+            lease_id=lease.id,
+            amount=Decimal("100.00"),
+            status=InvoiceStatus.UNPAID,
+            description="Usage invoice for NVIDIA H100 (80GB SXM5)",
+        )
+
+        # 6 simulated days = 75 real minutes elapsed
+        invoice.created_at = timezone.now() - timezone.timedelta(minutes=75)
+        invoice.save(update_fields=["created_at"])
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        profile = TenantProfile.objects.get(user=self.user)
+        self.assertIsNotNone(profile.freezed_at)
+
+        lease.refresh_from_db()
+        self.assertEqual(lease.status, RentalLeaseStatus.COMPLETED)
+        self.h100_instance.refresh_from_db()
+        self.assertEqual(self.h100_instance.status, GPUInstanceStatus.AVAILABLE)
+
+        unfreeze_fee_invoice = Invoice.objects.filter(description="Standard Unfreeze Fee", user=self.user).first()
+        self.assertIsNotNone(unfreeze_fee_invoice)
+        self.assertEqual(unfreeze_fee_invoice.amount, Decimal("25.00"))
+        self.assertEqual(unfreeze_fee_invoice.status, InvoiceStatus.UNPAID)

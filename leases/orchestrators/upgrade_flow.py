@@ -1,103 +1,148 @@
 import logging
 from decimal import Decimal
 
-from django.db import transaction
 from django.utils import timezone
 
 from billing.services.ledger import invoice_flat_fee, invoice_lease_usage
+from gpurent.core.orchestrators import BaseOrchestrator
 from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, RentalLease, RentalLeaseStatus
 
 logger = logging.getLogger(__name__)
 
 
-def upgrade_lease_tier(lease_id, target_model_id) -> RentalLease:
+class LeaseUpgradeOrchestrator(BaseOrchestrator[RentalLease]):
     """
-    Orchestrates the mid-lease GPU upgrade workflow within a single atomic database transaction.
-    Locks the lease row, invoices outstanding usage, frees up the old GPU, assesses dynamic
-    upgrade fees ($15 for Tier Swap, $5 for VRAM scaling), allocates a new physical instance,
-    and updates the lease reference.
+    Object-Oriented Orchestrator that manages the process of upgrading an active lease's GPU tier.
+    Inherits from the core BaseOrchestrator Shared Kernel to guarantee transaction safety,
+    standardized logging, and DRY compliance.
     """
-    with transaction.atomic():
-        # 1. Obtain a row-level lock on the RentalLease
+
+    def __init__(self, lease_id, target_model_id):
+        self.lease_id = lease_id
+        self.target_model_id = target_model_id
+        self.lease = None
+        self.old_instance = None
+        self.old_model = None
+        self.target_model = None
+        self.new_instance = None
+        self.fee_amount = Decimal("0.00")
+        self.fee_description = ""
+        self.now = None
+
+    def run(self) -> RentalLease:
+        self._lock_and_validate_lease()
+        self._fetch_and_validate_target_model()
+        self._invoice_accrued_usage()
+        self._release_old_resource()
+        self._assess_and_invoice_fees()
+        self._allocate_new_resource()
+        self._finalize_upgrade()
+        return self.lease
+
+    def _lock_and_validate_lease(self):
         try:
-            lease = RentalLease.objects.select_for_update().get(pk=lease_id)
+            self.lease = RentalLease.objects.select_for_update().get(pk=self.lease_id)
         except RentalLease.DoesNotExist as e:
-            raise ValueError(f"RentalLease with ID {lease_id} does not exist.") from e
+            raise ValueError(f"RentalLease with ID {self.lease_id} does not exist.") from e
 
-        # 2. Assert lease status is ACTIVE
-        if lease.status != RentalLeaseStatus.ACTIVE:
-            raise ValueError(f"Only active leases can be upgraded. Current status: {lease.status}")
+        if self.lease.status != RentalLeaseStatus.ACTIVE:
+            raise ValueError(f"Only active leases can be upgraded. Current status: {self.lease.status}")
 
-        old_instance = lease.gpu_instance
-        if not old_instance:
-            raise ValueError(f"Lease {lease_id} has no associated physical GPU instance to upgrade from.")
+        self.old_instance = self.lease.gpu_instance
+        if not self.old_instance:
+            raise ValueError(f"Lease {self.lease_id} has no associated physical GPU instance to upgrade from.")
 
-        old_model = old_instance.model
+        self.old_model = self.old_instance.model
 
-        # Fetch target GPU model
+    def _fetch_and_validate_target_model(self):
         try:
-            target_model = GPUModel.objects.get(pk=target_model_id)
+            self.target_model = GPUModel.objects.get(pk=self.target_model_id)
         except GPUModel.DoesNotExist as e:
-            raise ValueError(f"Target GPU Model with ID {target_model_id} does not exist.") from e
+            raise ValueError(f"Target GPU Model with ID {self.target_model_id} does not exist.") from e
 
-        if old_model.id == target_model.id:
+        if self.old_model.id == self.target_model.id:
             raise ValueError("Target model is the same as the current leased model.")
 
-        # 3. Calculate and invoice accrued usage for the old GPU
-        now = timezone.now()
-        invoice_lease_usage(lease, ended_at=now)
+    def _invoice_accrued_usage(self):
+        self.now = timezone.now()
+        invoice_lease_usage(self.lease, ended_at=self.now)
 
-        # 4. Release the old physical GPUInstance to the inventory
-        old_instance.status = GPUInstanceStatus.AVAILABLE
-        old_instance.save(update_fields=["status"])
+    def _release_old_resource(self):
+        self.old_instance.status = GPUInstanceStatus.AVAILABLE
+        self.old_instance.save(update_fields=["status"])
 
-        # 5. Determine dynamic upgrade fee
-        old_family_prefix = old_model.name.split(" (")[0]
-        target_family_prefix = target_model.name.split(" (")[0]
+    def _assess_and_invoice_fees(self):
+        old_family_prefix = self.old_model.name.split(" (")[0]
+        target_family_prefix = self.target_model.name.split(" (")[0]
 
         if old_family_prefix == target_family_prefix:
             # VRAM scaling increment (e.g. A100 40GB ➔ A100 80GB)
-            fee_amount = Decimal("5.00")
-            fee_description = f"Flat upgrade charge: VRAM Scaling from {old_model.name} to {target_model.name}."
+            self.fee_amount = Decimal("5.00")
+            self.fee_description = (
+                f"Flat upgrade charge: VRAM Scaling from {self.old_model.name} to {self.target_model.name}."
+            )
         else:
             # Mid-lease Tier Swap (different model family, e.g. L4 ➔ A100)
-            fee_amount = Decimal("15.00")
-            fee_description = f"Flat upgrade charge: Tier Swap from {old_model.name} to {target_model.name}."
+            self.fee_amount = Decimal("15.00")
+            self.fee_description = (
+                f"Flat upgrade charge: Tier Swap from {self.old_model.name} to {self.target_model.name}."
+            )
 
-        is_prepaid = target_model.name.startswith("NVIDIA RTX") or target_model.name.startswith("NVIDIA L4")
+        is_prepaid = self.target_model.name.startswith("NVIDIA RTX") or self.target_model.name.startswith("NVIDIA L4")
 
         # Invoice this flat fee
         invoice_flat_fee(
-            user=lease.user,
-            lease_id=lease.id,
-            amount=fee_amount,
-            description=fee_description,
+            user=self.lease.user,
+            lease_id=self.lease.id,
+            amount=self.fee_amount,
+            description=self.fee_description,
             is_prepaid=is_prepaid,
         )
 
-        # 6. Query and claim an available physical instance of the target model
-        new_instance = GPUInstance.objects.filter(
-            model=target_model,
+        was_prepaid = self.old_model.name.startswith("NVIDIA RTX") or self.old_model.name.startswith("NVIDIA L4")
+        is_postpaid = self.target_model.name.startswith("NVIDIA A100") or self.target_model.name.startswith(
+            "NVIDIA H100"
+        )
+
+        if was_prepaid and is_postpaid:
+            from billing.models import UserCredit
+
+            credit, _ = UserCredit.objects.select_for_update().get_or_create(user=self.lease.user)
+            if credit.balance > Decimal("0.00"):
+                credit.frozen_prepaid_balance = credit.balance
+                credit.balance = Decimal("0.00")
+                credit.save(update_fields=["frozen_prepaid_balance", "balance"])
+
+    def _allocate_new_resource(self):
+        self.new_instance = GPUInstance.objects.filter(
+            model=self.target_model,
             status=GPUInstanceStatus.AVAILABLE,
         ).first()
 
-        if not new_instance:
-            raise ValueError(f"No available physical instances for the selected model: {target_model.name}")
+        if not self.new_instance:
+            raise ValueError(f"No available physical instances for the selected model: {self.target_model.name}")
 
-        new_instance.status = GPUInstanceStatus.LEASED
-        new_instance.save(update_fields=["status"])
+        self.new_instance.status = GPUInstanceStatus.LEASED
+        self.new_instance.save(update_fields=["status"])
 
-        # 7. Update RentalLease with new targets and reset start timestamp
-        lease.gpu_instance = new_instance
-        lease.started_at = now
-        lease.total_billed_amount = (lease.total_billed_amount + fee_amount).quantize(Decimal("0.01"))
-        lease.save(update_fields=["gpu_instance", "started_at", "total_billed_amount"])
+    def _finalize_upgrade(self):
+        self.lease.gpu_instance = self.new_instance
+        self.lease.started_at = self.now
+        self.lease.total_billed_amount = (self.lease.total_billed_amount + self.fee_amount).quantize(Decimal("0.01"))
+        self.lease.save(update_fields=["gpu_instance", "started_at", "total_billed_amount"])
 
         logger.info(
             "Successfully upgraded lease %s from %s to %s (Physical Serial: %s).",
-            lease.id,
-            old_model.name,
-            target_model.name,
-            new_instance.serial_number,
+            self.lease.id,
+            self.old_model.name,
+            self.target_model.name,
+            self.new_instance.serial_number,
         )
-        return lease
+
+
+def upgrade_lease_tier(lease_id, target_model_id) -> RentalLease:
+    """
+    Orchestrates the mid-lease GPU upgrade workflow within a single atomic database transaction.
+    Procedural wrapper that delegates to LeaseUpgradeOrchestrator for robust DDD design.
+    """
+    return LeaseUpgradeOrchestrator(lease_id, target_model_id).execute()

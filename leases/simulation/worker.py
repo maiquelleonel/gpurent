@@ -143,4 +143,54 @@ class MetricsSimulatorWorker:
             except Exception:
                 logger.exception("Failed to process simulation tick for lease %s", lease.id)
 
+        # 4. Check postpaid arrears for 5-day grace period
+        try:
+            from billing.models import Invoice, InvoiceStatus
+            from billing.services.ledger import invoice_flat_fee
+            from leases.utils.time_scale import get_simulated_duration
+            from users.models import TenantProfile
+            from users.orchestrators.lifecycle import freeze_tenant_account
+
+            unpaid_invoices = Invoice.objects.filter(status=InvoiceStatus.UNPAID)
+            for inv in unpaid_invoices:
+                is_postpaid_a100_h100 = False
+                if "A100" in inv.description or "H100" in inv.description:
+                    is_postpaid_a100_h100 = True
+                elif inv.lease_id:
+                    try:
+                        lease_obj = RentalLease.objects.select_related("gpu_instance__model").get(id=inv.lease_id)
+                        if lease_obj.gpu_instance and (
+                            "A100" in lease_obj.gpu_instance.model.name or "H100" in lease_obj.gpu_instance.model.name
+                        ):
+                            is_postpaid_a100_h100 = True
+                    except RentalLease.DoesNotExist:
+                        pass
+
+                if is_postpaid_a100_h100:
+                    simulated_duration = get_simulated_duration(inv.created_at, now)
+                    if simulated_duration.total_seconds() >= 5 * 24 * 3600:
+                        try:
+                            profile = TenantProfile.objects.get(user=inv.user)
+                            is_frozen = profile.freezed_at is not None
+                        except TenantProfile.DoesNotExist:
+                            is_frozen = False
+
+                        if not is_frozen:
+                            logger.warning(
+                                "🚨 FREEZING tenant account for user %s due to unpaid postpaid invoice older than 5 simulated days!",
+                                inv.user.username,
+                            )
+                            # Freeze account (keep_dedicated_gpus=False releases physical GPUs and completes leases)
+                            freeze_tenant_account(inv.user.id, keep_dedicated_gpus=False)
+                            # Generate standard Unfreeze Fee of $25.00
+                            invoice_flat_fee(
+                                user=inv.user,
+                                lease_id=None,
+                                amount=Decimal("25.00"),
+                                description="Standard Unfreeze Fee",
+                                is_prepaid=False,
+                            )
+        except Exception:
+            logger.exception("Failed to check postpaid arrears during simulation tick")
+
         return simulated_count
