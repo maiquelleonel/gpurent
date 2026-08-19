@@ -72,23 +72,23 @@ The orchestrator must enforce highly specific enterprise billing strategies:
 * **Billing Tiers:**
   * **Pre-Paid Credit Tier (RTX 4090 & L4):**
     * Users consume pre-loaded balance credits. The orchestrator checks credits at every tick.
-    * **3+ Month Prepaid Bonus (1 Mês Grátis):** Usuários que realizarem a recarga/contratação pré-paga equivalente a **3 meses ou mais** recebem automaticamente uma bonificação equivalente a **1 mês adicional em créditos** adicionados diretamente ao saldo (`UserCredit.balance`).
+    * **3+ Month Prepaid Bonus (1 Month Free):** Users purchasing a prepaid package equivalent to **3 months or more** automatically receive an extra bonus equivalent to **1 additional month of credits** added directly to their balance (`UserCredit.balance`).
     * **80% Depletion Alert:** When a user's consumption reaches 80% of their loaded credits, the system automatically sends a low-credit warning email.
     * **Zero Balance Freeze (Suspension):** Once the balance drops to `$0.00` or below, the account enters a "Freezing/Suspension" state, the running lease is immediately suspended, an email alert is sent, and the physical GPU is freed back to the catalog. When they load credits, the account is unfrozen, and life goes on.
   * **Post-Paid Invoiced Tier (A100 & H100):**
     * Users are billed via deferred invoices.
     * **5-Day Grace Period:** The user has **5 days** of consumption to pay the invoice.
-    * **Late Payment Freeze:** If the invoice remains unpaid after 5 days, the account is frozen/suspended, the active lease is terminated, and a **standard unfreeze fee (fee padrão de descongelamento)** is added to their outstanding invoice bill.
+    * **Late Payment Freeze:** If the invoice remains unpaid after 5 days, the account is frozen/suspended, the active lease is terminated, and a **standard unfreeze fee** is added to their outstanding invoice bill.
   * **Dedicated Instances Tier (Is Dedicated = True):** Requires **upfront payment** (pre-paid invoice processed and confirmed via mock billing before the GPUInstance transitions to `LEASED`).
 * **Plan Transitions (Upgrade/Migration Pre -> Post):**
   * When a user moves from a prepaid plan (e.g., L4/RTX) to a postpaid plan (e.g., H100/A100):
     * Their current prepaid credit balance is **frozen**.
     * At the end of the billing period, this frozen prepaid balance is **deducted from their final postpaid invoice**.
-    * The final invoice amount will be: `Postpaid Consumption of the Period - Frozen Prepaid Balance = Final Invoice Amount` (Restando valor final da invoice).
+    * The final invoice amount will be: `Postpaid Consumption of the Period - Frozen Prepaid Balance = Final Invoice Amount`.
 * **Upgrades & Flat Fees:**
   * When a user performs an upgrade and has available prepaid credits, any flat fees (such as the `$15.00` tier swap fee) are **instantly paid and deducted** from their prepaid credit balance.
 * **Volume Discounts:**
-  * Customers alugando **mais de 5 instâncias de GPU do mesmo modelo** recebem um desconto de volume de **10%** sob a tarifa horária daquele modelo.
+  * Customers renting **more than 5 GPU instances of the same model** receive a **10%** volume discount on the hourly rate for that model.
 
 ### Feature 5: Local Payment Mock Integration
 To enable offline development and deterministic payment flow testing, the platform integrates with a local payment mock server.
@@ -172,7 +172,7 @@ To secure API access and monitor tenant usage volume, the application tracks req
     1. **Cycle Close:** At 30 simulated days (720 hours), active postpaid cycle closes (`cycle_ended_at = now`, `is_active = False`) and opens a new active cycle.
     2. **Invoice Issuance:** Generates `Invoice` (`UNPAID`), dispatches transactional email notification, and creates a billing `SystemAlert`.
     3. **Automated Tenant Payment:** After 1-2 simulation ticks, the simulated enterprise tenant pays the invoice via mock gateway.
-    4. **Payment Confirmation & Compensation:** Invoice transitions to `PAID`, issuing a payment confirmation `SystemAlert` toast ("💵 Fatura pós-paga de $X paga com sucesso por Y").
+    4. **Payment Confirmation & Compensation:** Invoice transitions to `PAID`, issuing a payment confirmation `SystemAlert` toast ("💵 Postpaid invoice of $X paid successfully by customer Y").
     5. **Live Dashboard Sync:** The compensated/paid cycle drops from the live monitoring table cleanly.
 
 ---

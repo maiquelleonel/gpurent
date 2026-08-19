@@ -36,7 +36,7 @@ def auto_provision_gpu(model_name: str | None = None, is_dedicated: bool = False
     try:
         SystemAlert.objects.create(
             alert_type="provisioning",
-            message=f"🚀 Nova GPU provisionada e pronta para aluguel: {model.name} (Serial: {instance.serial_number})",
+            message=f"🚀 New GPU provisioned and ready for lease: {model.name} (Serial: {instance.serial_number})",
         )
     except Exception:
         logger.exception("Failed to create GPU provisioning SystemAlert")

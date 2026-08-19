@@ -32,7 +32,7 @@ This repository showcases the absolute state-of-the-art Python and Django 6.0+ e
 * **API Shielding Middleware:** Intercepts and rejects requests with HTTP `403 Forbidden` if the user's account is currently frozen or soft-deleted.
 * **Stripe Webhook Integration:** Verified Stripe-Signature endpoints offloading charge refunds and failed payment suspensions asynchronously to the queue.
 * **Live Admin HTMX Toasts:** Overridden base admin templates using **HTMX Polling** to push stackable, self-fading Bootstrap toast notifications (signups, billing, deleted accounts) in the bottom right corner in real-time.
-* **Mailpit SMTP Mail Capture:** Deployable local capture engine showcasing beautiful transactional email templates (welcomes, faturas, freeze notices, and account closures).
+* **Mailpit SMTP Mail Capture:** Deployable local capture engine showcasing beautiful transactional email templates (welcomes, invoices, freeze notices, and account closures).
 
 ---
 
@@ -64,53 +64,53 @@ just test -x
 
 ### 2. Local Development Workflow (Hybrid: Docker Companion Containers + Local Dev)
 
-Para uma experiência fluida de desenvolvimento com hot-reload, fila assíncrona ativa e visualização de emails em tempo real:
+For a smooth local development workflow with hot-reload, active background task queues, and real-time email inspection:
 
-#### Passo 1: Subir os Containers de Apoio (PostgreSQL, Mailpit e Stripe Mock)
+#### Step 1: Start Companion Containers (PostgreSQL, Mailpit, and Stripe Mock)
 ```bash
-# Sobe banco de dados, Mailpit SMTP e Stripe Mock em background
+# Start database, Mailpit SMTP, and Stripe Mock in the background
 docker compose up -d db stripe-mock mailpit
 ```
 
-#### Passo 2: Preparar Banco de Dados e Catálogo de GPUs
+#### Step 2: Prepare Database and GPU Inventory Catalog
 ```bash
-# Aplica migrations e popula o catálogo de GPUs (15 instâncias)
+# Apply migrations and seed GPU catalog (15 instances)
 just migrate
 just seed
 ```
 
-#### Passo 3: Iniciar o Servidor Web e o Worker de Filas (`steady_queue`)
-O comando `just dev` utiliza o **Honcho** para rodar simultaneamente o servidor web Django (`runserver`) e o consumidor da fila de tarefas assíncronas (`steady_queue`):
+#### Step 3: Start Web Server and Queue Worker (`steady_queue`)
+The `just dev` command uses **Honcho** to run the Django web server (`runserver`) and async queue consumer (`steady_queue`) concurrently:
 ```bash
 just dev
 ```
 
-#### Passo 4: Em outro terminal, Iniciar o Motor de Simulação com Agentes
+#### Step 4: In a separate terminal, Start the Multi-Agent Simulation Engine
 ```bash
-# Executa os agentes automatizados (HappyPath, Delinquent, Upgrade, etc.) e mantém a simulação contínua
+# Run automated client agents (HappyPath, Delinquent, Upgrade, etc.) with continuous simulation
 just run_simulation
 ```
 
-### 3. Docker Compose (Cluster 100% Containerizado)
-Se preferir rodar toda a stack dentro de containers Docker:
+### 3. Docker Compose (100% Containerized Stack)
+If you prefer running the entire stack in Docker containers:
 ```bash
 docker compose up --build -d
 docker compose logs -f
 ```
 
-### 🌐 Painéis e Portas Locais:
-* **Django Admin & Live Dashboard:** [`http://localhost:8000/admin/`](http://localhost:8000/admin/) *(Dashboard HTMX em tempo real com suporte a Dark Mode!)*
-* **Mailpit Web Mailbox:** [`http://localhost:8025`](http://localhost:8025) *(Inspecione todos os emails transacionais gerados pelo pipeline!)*
+### 🌐 Local Endpoints & Dashboards:
+* **Django Admin & Live Dashboard:** [`http://localhost:8000/admin/`](http://localhost:8000/admin/) *(Real-time HTMX dashboard with Dark Mode support!)*
+* **Mailpit Web Mailbox:** [`http://localhost:8025`](http://localhost:8025) *(Inspect all transactional emails emitted by the pipeline!)*
 * **Django REST API:** `http://localhost:8000/api/`
 * **Stripe Webhook Mock Gateway:** `http://localhost:12111`
-* **PostgreSQL Database:** `localhost:54322` (ou porta interna `5432`)
+* **PostgreSQL Database:** `localhost:54322` (or internal container port `5432`)
 
 ---
 
 ## 🤖 The Programmatic Client Agent Stress Engine
 
 The system includes a brilliant programmatic stress simulator at `leases/simulation/agent_engine.py` representing four customer behaviors that run against the API:
-1. **HappyPathAgent:** Starts a shared RTX 4090 lease, ticks billing, generates faturas, and gracefully terminates the contract.
+1. **HappyPathAgent:** Starts a shared RTX 4090 lease, ticks billing, generates invoices, and gracefully terminates the contract.
 2. **DelinquentAgent:** Spawns a prepaid lease with $1.00 credit, lets the ticker deplete it, and verifies that the system automatically suspends the lease and frees up the physical GPU.
 3. **UpgradeSeekerAgent:** Starts an L4 lease, triggers a mid-lease Tier Swap upgrade to H100 dedicated, and validates pro-rated weekly reservation fees.
 4. **AbusiveAgent:** Floods request endpoints with api tokens to trigger the APITokenRateLimitMiddleware and verify the HTTP `429 Too Many Requests` quota block.

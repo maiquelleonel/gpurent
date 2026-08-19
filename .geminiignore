@@ -1,13 +1,13 @@
 # ==============================================================================
 # .geminiignore / .antigravityignore
-# Otimizado para: Python (uv) + Django + PostgreSQL (Testes em SQLite :memory:)
-# Objetivo: Evitar consumo fantasma de tokens e vazamento de chaves de API
+# Optimized for: Python (uv) + Django + PostgreSQL (In-memory SQLite for tests)
+# Goal: Prevent phantom token consumption and accidental secret leakage
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 1. AMBIENTE VIRTUAL E DEPENDÊNCIAS (UV / PYTHON)
+# 1. VIRTUAL ENVIRONMENT AND DEPENDENCIES (UV / PYTHON)
 # ------------------------------------------------------------------------------
-# Impede a IA de tentar ler arquivos binários ou bibliotecas instaladas
+# Prevents AI from reading binary files or installed packages
 .venv/
 venv/
 env/
@@ -23,9 +23,9 @@ htmlcov/
 .ruff_cache/
 
 # ------------------------------------------------------------------------------
-# 2. BANCO DE DADOS E INFRAESTRUTURA
+# 2. DATABASE AND INFRASTRUCTURE
 # ------------------------------------------------------------------------------
-# Mesmo usando Postgres, impede que dumps, caches ou traços de SQLite inflem os tokens
+# Prevents database dumps, caches, or SQLite files from inflating tokens
 *.sql
 *.sqlite3
 db.sqlite3
@@ -33,9 +33,9 @@ db.sqlite3
 .data/
 
 # ------------------------------------------------------------------------------
-# 3. SEGURANÇA E CHAVES DE API (CRUCIAL)
+# 3. SECURITY AND API KEYS (CRUCIAL)
 # ------------------------------------------------------------------------------
-# Impede o Gemini de ler suas credenciais confidenciais locais e tokens de acesso
+# Prevents AI from reading confidential environment variables or access tokens
 .env
 *.env
 .env.*
@@ -45,9 +45,9 @@ certs/
 *.key
 
 # ------------------------------------------------------------------------------
-# 4. LOGS E ARQUIVOS TEMPORÁRIOS DO SISTEMA
+# 4. LOGS AND TEMPORARY SYSTEM FILES
 # ------------------------------------------------------------------------------
-# Outputs longos de erros antigos geram o efeito "bola de neve" no custo da API
+# Large logs snowball API token costs
 *.log
 logs/
 tmp/
@@ -57,24 +57,23 @@ tmp/
 Thumbs.db
 
 # ------------------------------------------------------------------------------
-# 5. HISTÓRICO DE MIGRAÇÕES DO DJANGO
+# 5. DJANGO MIGRATION HISTORY
 # ------------------------------------------------------------------------------
-# A IA só precisa ler o seu models.py atual para programar.
-# Ignorar o histórico de migrações economiza centenas de milhares de tokens.
+# AI only needs models.py for context; ignoring migrations saves significant tokens
 **/migrations/*.py
 **/migrations/__pycache__/
 
 # ------------------------------------------------------------------------------
-# 6. ESTADO INTERNO E CACHES DE AGENTES DE IA
+# 6. INTERNAL STATE AND AI AGENT CACHES
 # ------------------------------------------------------------------------------
-# Impede que as ferramentas leiam o próprio histórico salvo, evitando loops infinitos
+# Prevents tools from re-reading saved indexing history
 .antigravitycli/
 .codebase-memory/
 .cursorignore
 .cursorindexingignore
 
 # ------------------------------------------------------------------------------
-# 7. ARQUIVOS ESTÁTICOS, RELATÓRIOS E NOTEBOOKS
+# 7. STATIC ASSETS, REPORTS AND NOTEBOOKS
 # ------------------------------------------------------------------------------
 staticfiles/
 alliaadmin/static/

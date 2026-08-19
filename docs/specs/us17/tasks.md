@@ -19,7 +19,7 @@ This document specifies the technical tasks for implementing dynamic continuous 
     - Validates invoice is `UNPAID`.
     - Dispatches payment to mock gateway.
     - Transitions `invoice.status = InvoiceStatus.PAID` and sets `settled_at = timezone.now()`.
-    - Creates a `SystemAlert(alert_type="billing", message="💵 Fatura pós-paga de ${amount} paga com sucesso pelo cliente {username}!")`.
+    - Creates a `SystemAlert(alert_type="billing", message="💵 Postpaid invoice of ${amount} paid successfully by customer {username}!")`.
     - Dispatches transactional payment confirmation email.
   - 2. Ensure closed cycles (`is_active=False`) remain closed once invoiced/settled.
 
@@ -31,7 +31,7 @@ This document specifies the technical tasks for implementing dynamic continuous 
   - 1. Implement `auto_provision_gpu(model_name=None, is_dedicated=False) -> GPUInstance`:
     - Picks a GPU model (or specified model).
     - Creates a new `GPUInstance` with a generated serial number (e.g. `GPU-{MODEL_TAG}-{RANDOM}`).
-    - Emits a `SystemAlert(alert_type="provisioning", message="🚀 Nova GPU provisionada e pronta para aluguel: {model.name} (Serial: {serial_number})")`.
+    - Emits a `SystemAlert(alert_type="provisioning", message="🚀 New GPU provisioned and ready for lease: {model.name} (Serial: {serial_number})")`.
 
 ---
 

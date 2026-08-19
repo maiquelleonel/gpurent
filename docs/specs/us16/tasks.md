@@ -7,9 +7,9 @@ This document specifies the concrete technical tasks to resolve dashboard layout
 ## 🛠️ Task 1: 3-Column Side-by-Side Admin Dashboard Layout (`templates/admin/index.html`)
 * **Description:** Restructure the Django admin home page into a clean 3-column desktop layout.
 * **Layout Structure:**
-  - **Column 1 (Left - ~25%):** `[Tabela de Entidades / App List]` (`#content-main`, app list).
-  - **Column 2 (Middle - ~25%):** `[Últimas Modificações]` (`#content-related`, recent actions log).
-  - **Column 3 (Right - ~50%):** `[Painel de Monitoramento]` (Live Telemetry, Balances & Cycles).
+  - **Column 1 (Left - ~25%):** `[Entities / App List]` (`#content-main`, app list).
+  - **Column 2 (Middle - ~25%):** `[Recent Actions]` (`#content-related`, recent actions log).
+  - **Column 3 (Right - ~50%):** `[Monitoring Dashboard]` (Live Telemetry, Balances & Cycles).
 * **Responsive Behavior:** Stacks vertically on screens below 1200px.
 
 ---

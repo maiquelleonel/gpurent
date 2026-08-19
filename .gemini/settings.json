@@ -1,4 +1,62 @@
 {
+  "general": {
+    "sessionRetention": {
+      "enabled": true,
+      "maxAge": "5d",
+      "maxCount": 100
+    }
+  },
+  "model": {
+    "name": "gemini-3.7-flash",
+    "maxSessionTurns": 100,
+    "compressionThreshold": 0.4,
+    "summarizeToolOutput": {
+      "run_shell_command": {
+        "tokenBudget": 8000
+      }
+    }
+  },
+  "contextManagement": {
+    "historyWindow": {
+      "maxTokens": 120000,
+      "retainedTokens": 30000
+    },
+    "messageLimits": {
+      "normalMaxTokens": 5000,
+      "retainedMaxTokens": 20000
+    },
+    "tools": {
+      "distillation": {
+        "maxOutputTokens": 8000,
+        "summarizationThresholdTokens": 15000
+      }
+    }
+  },
+  "tools": {
+    "truncateToolOutputThreshold": 30000
+  },
+  "experimental": {
+    "dynamicModelConfiguration": true
+  },
+  "modelConfigs": {
+    "modelChains": {
+      "default_chain": [
+        {
+          "model": "gemini-3.7-flash",
+          "maxAttempts": 2,
+          "actions": {
+            "transient": "silent",
+            "terminal": "silent"
+          }
+        },
+        {
+          "model": "gemini-3.5-flash-lite",
+          "maxAttempts": 2,
+          "isLastResort": true
+        }
+      ]
+    }
+  },
   "mcpServers": {
     "django-ai-boost": {
       "command": "django-ai-boost",

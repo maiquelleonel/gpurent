@@ -220,7 +220,7 @@ class LiveAlertsTestCase(TestCase):
 
         alert = SystemAlert.objects.filter(alert_type="provisioning").first()
         self.assertIsNotNone(alert)
-        self.assertIn("Nova GPU provisionada", alert.message)
+        self.assertIn("New GPU provisioned", alert.message)
         self.assertIn(instance.serial_number, alert.message)
 
     def test_settle_postpaid_invoice_flow(self):
@@ -241,14 +241,14 @@ class LiveAlertsTestCase(TestCase):
 
         alert = SystemAlert.objects.filter(
             alert_type="billing",
-            message__contains="Fatura pós-paga de $150.00 paga com sucesso",
+            message__contains="Postpaid invoice of $150.00 paid successfully",
         ).first()
         self.assertIsNotNone(alert)
 
     def test_admin_live_alerts_renders_provisioning_toast(self):
         SystemAlert.objects.create(
             alert_type="provisioning",
-            message="🚀 Nova GPU provisionada e pronta para aluguel: NVIDIA H100 (Serial: GPU-H100-TEST01)",
+            message="🚀 New GPU provisioned and ready for lease: NVIDIA H100 (Serial: GPU-H100-TEST01)",
         )
 
         self.client.force_login(self.staff_user)
@@ -318,6 +318,6 @@ class LiveAlertsTestCase(TestCase):
 
         paid_alert = SystemAlert.objects.filter(
             alert_type="billing",
-            message__contains="paga com sucesso",
+            message__contains="paid successfully",
         ).first()
         self.assertIsNotNone(paid_alert)

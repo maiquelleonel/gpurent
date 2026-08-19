@@ -213,7 +213,7 @@ This document describes the business-centric User Stories derived from the Produ
 
 ### Acceptance Criteria
 1. **Active-Only Usage Cycles Monitor:** The live monitoring dashboard filters out closed/settled cycles (`is_active=True`), ensuring clean display without clutter.
-2. **Hardware Fleet Auto-Provisioning:** When triggered, provisions new physical GPU instances into the catalog and dispatches a `SystemAlert` of type `provisioning` ("🚀 Nova GPU provisionada e pronta para aluguel: [Model] ([Serial])").
+2. **Hardware Fleet Auto-Provisioning:** When triggered, provisions new physical GPU instances into the catalog and dispatches a `SystemAlert` of type `provisioning` ("🚀 New GPU provisioned and ready for lease: [Model] ([Serial])").
 3. **Dynamic Client Persona Lifecycle:** Continuous simulation loop randomly spawns new tenant personas, rents available GPUs, performs mid-lease upgrades, and handles terminations across ticks.
 4. **Complete Postpaid Settlement:**
    - Starts or advances postpaid accounts (e.g. `enterprise_postpaid`) to 30 simulated days (720h).

@@ -64,7 +64,7 @@ This document contains the physical, actionable development tasks required to co
   - [x] 2. Implement Serializers and ViewSets inside the apps:
      - [x] `TenantViewSet`: Endpoints for signup/register, freeze/unfreeze account, and account soft-deletion.
      - [x] `LeaseViewSet`: Endpoints for listing catalog, renting shared/dedicated GPUs, and upgrading mid-lease.
-     - [x] `BillingViewSet`: Endpoints for checking prepaid balances, recharging, and listing faturas.
+     - [x] `BillingViewSet`: Endpoints for checking prepaid balances, recharging, and listing invoices.
   - [x] 3. Expose REST paths in `gpurent/urls.py` under the `/api/v1/` prefix.
   - [x] 4. Wire our custom token security checking (`X-API-Token`) and rate-limiting to DRF view actions.
 * **Verification:** Perform mock requests against ViewSets verifying correct status codes and responses.

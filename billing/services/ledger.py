@@ -453,7 +453,7 @@ def settle_postpaid_invoice(invoice_id, payment_method="mock_gateway") -> Invoic
             SystemAlert.objects.create(
                 alert_type="billing",
                 message=(
-                    f"💵 Fatura pós-paga de ${invoice.amount} paga com sucesso pelo cliente {invoice.user.username}!"
+                    f"💵 Postpaid invoice of ${invoice.amount} paid successfully by customer {invoice.user.username}!"
                 ),
             )
         except Exception:

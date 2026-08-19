@@ -215,14 +215,14 @@
 {% block content %}
 <div class="dashboard-3col-container">
 
-  <!-- Coluna 1: Tabela de Links / Entidades -->
+  <!-- Column 1: App List & Model Links -->
   <div class="dashboard-col-entities">
     <div id="content-main">
       {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
     </div>
   </div>
 
-  <!-- Coluna 2: Últimas Modificações (Recent Actions) -->
+  <!-- Column 2: Recent Actions Log -->
   <div class="dashboard-col-actions">
     <div id="content-related">
       <div class="module" id="recent-actions-module">
@@ -254,7 +254,7 @@
     </div>
   </div>
 
-  <!-- Coluna 3: Painel de Monitoramento (Live Telemetry & Billing Dashboard) -->
+  <!-- Column 3: Live Monitoring Dashboard (HTMX Telemetry & Billing Dashboard) -->
   <div class="dashboard-col-telemetry">
     <div id="live-monitoring-dashboard"
          hx-get="{% url 'admin_live_dashboard' %}"
