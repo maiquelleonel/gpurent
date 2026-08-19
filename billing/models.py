@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -44,6 +45,37 @@ class InvoiceStatus(models.TextChoices):
     PAID = "PAID", _("Paid")
     FAILED = "FAILED", _("Failed")
     REFUNDED = "REFUNDED", _("Refunded")
+
+
+class PlanType(models.TextChoices):
+    PREPAID = "PREPAID", _("Prepaid")
+    POSTPAID = "POSTPAID", _("Postpaid")
+
+
+class ClientUsageCycle(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="usage_cycles")
+    plan_type = models.CharField(max_length=16, choices=PlanType.choices)
+    gpu = models.CharField(max_length=128)
+    hours_consumed = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal("0.0000"))
+    total_consumption = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    total_credits = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    cycle_started_at = models.DateTimeField(default=timezone.now)
+    cycle_ended_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("Client Usage Cycle")
+        verbose_name_plural = _("Client Usage Cycles")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["client", "is_active"]),
+        ]
+
+    def __str__(self) -> str:
+        cycle_status = "Active" if self.is_active else f"Ended at {self.cycle_ended_at}"
+        return f"{self.client.username} | {self.plan_type} | {self.gpu} ({cycle_status})"
 
 
 class Invoice(models.Model):

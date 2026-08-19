@@ -5,8 +5,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from billing.models import UserCredit
-from billing.services.ledger import invoice_lease_usage
+from billing.services.ledger import record_fractional_usage
 from leases.models import GPUInstanceStatus, MetricSnapshot, RentalLease, RentalLeaseStatus
 
 logger = logging.getLogger(__name__)
@@ -60,6 +59,18 @@ class MetricsSimulatorWorker:
                 gpu_instance.serial_number,
                 temperature,
             )
+            try:
+                from leases.models import SystemAlert
+
+                SystemAlert.objects.create(
+                    alert_type="hardware",
+                    message=(
+                        f"🔥 THERMAL ALERT on GPU {gpu_instance.serial_number} ({model.name})! "
+                        f"Temperature reached {temperature}°C on tenant {lease.user.username}."
+                    ),
+                )
+            except Exception:
+                logger.exception("Failed to create thermal SystemAlert")
 
         # Create MetricSnapshot record
         snapshot = MetricSnapshot.objects.create(
@@ -83,12 +94,80 @@ class MetricsSimulatorWorker:
 
         return snapshot
 
+    def _settle_eligible_postpaid_invoices(self, tick_time):
+        """
+        Simulates enterprise clients paying off their issued postpaid invoices on subsequent ticks.
+        """
+        from billing.models import Invoice, InvoiceStatus
+        from billing.services.ledger import settle_postpaid_invoice
+
+        unpaid_postpaid_invoices = Invoice.objects.filter(
+            status=InvoiceStatus.UNPAID,
+            description__icontains="30-Day Postpaid",
+            created_at__lt=tick_time - timezone.timedelta(seconds=1),
+        )
+        for inv in unpaid_postpaid_invoices:
+            try:
+                settle_postpaid_invoice(inv.id)
+                logger.info("Settled postpaid invoice %s for user %s", inv.id, inv.user.username)
+            except Exception:
+                logger.exception("Failed to auto-settle postpaid invoice %s", inv.id)
+
+    def _process_dynamic_fleet_and_tenants(self):
+        """
+        Orchestrates dynamic fleet auto-provisioning and dynamic client lease onboarding.
+        """
+        from django.contrib.auth import get_user_model
+
+        from billing.models import UserCredit
+        from leases.models import GPUInstance, GPUInstanceStatus, RentalLease, RentalLeaseStatus
+        from leases.orchestrators.lease_flow import provision_lease
+        from leases.services.fleet_provisioning import auto_provision_gpu
+
+        User = get_user_model()
+        available_count = GPUInstance.objects.filter(status=GPUInstanceStatus.AVAILABLE).count()
+
+        # 1. Auto-provision GPU if catalog capacity is constrained
+        if available_count < 2:
+            try:
+                auto_provision_gpu()
+            except Exception:
+                logger.exception("Failed to auto-provision GPU during simulation tick")
+
+        # 2. Dynamic client onboarding if available GPUs exist
+        available_gpu = GPUInstance.objects.filter(status=GPUInstanceStatus.AVAILABLE).select_related("model").first()
+        active_dynamic_leases_count = RentalLease.objects.filter(
+            status=RentalLeaseStatus.ACTIVE,
+            user__username__startswith="dyn_client_",
+        ).count()
+
+        if available_gpu and active_dynamic_leases_count < 3 and random.random() < 0.35:
+            client_num = random.randint(100, 999)
+            username = f"dyn_client_{client_num}"
+            try:
+                user, _ = User.objects.get_or_create(username=username)
+                UserCredit.objects.update_or_create(
+                    user=user,
+                    defaults={
+                        "balance": Decimal("60.00"),
+                        "starting_balance": Decimal("60.00"),
+                        "low_credit_alert_sent": False,
+                    },
+                )
+                provision_lease(user, available_gpu.model.id, is_dedicated=False)
+                logger.info("Dynamic client %s joined and rented %s!", username, available_gpu.model.name)
+            except Exception:
+                logger.exception("Failed to onboard dynamic client %s", username)
+
     def tick(self) -> int:
         """
         Executes a single simulation tick:
-        1. Invoices accrued usage for all active leases.
-        2. Deducts credits from prepaid accounts and suspends delinquent leases.
+        1. Accumulates fractional usage in real-time on active ClientUsageCycles.
+        2. Deducts credits from prepaid accounts and suspends depleted leases.
         3. Generates and persists metric snapshots for remaining active leases.
+        4. Auto-settles eligible postpaid invoices with toast alerts.
+        5. Handles dynamic fleet provisioning and dynamic client onboarding.
+        6. Enforces postpaid arrears late-payment freeze if invoices exceed 5 days.
         """
         active_leases = RentalLease.objects.filter(status=RentalLeaseStatus.ACTIVE).select_related(
             "gpu_instance__model"
@@ -108,42 +187,53 @@ class MetricsSimulatorWorker:
                     if not gpu_instance:
                         continue
 
-                    model = gpu_instance.model
+                    # 1. Record fractional usage and check depletion
+                    cost, is_depleted = record_fractional_usage(locked_lease, ended_at=now)
 
-                    # 1. Calculate and invoice elapsed usage up to now
-                    invoice_lease_usage(locked_lease, ended_at=now)
-                    locked_lease.started_at = now
-                    locked_lease.save(update_fields=["started_at"])
+                    if is_depleted:
+                        logger.warning(
+                            "⚠️ SUSPENDING LEASE %s due to pre-paid credit depletion!",
+                            locked_lease.id,
+                        )
+                        locked_lease.status = RentalLeaseStatus.SUSPENDED_PAYMENT
+                        locked_lease.ended_at = now
+                        locked_lease.save(update_fields=["status", "ended_at"])
 
-                    # 2. If pre-paid, verify credit depletion
-                    is_prepaid = model.name.startswith("NVIDIA RTX") or model.name.startswith("NVIDIA L4")
-                    if is_prepaid:
-                        # Lock user credit row
-                        credit, _ = UserCredit.objects.select_for_update().get_or_create(user=locked_lease.user)
+                        gpu_instance.status = GPUInstanceStatus.AVAILABLE
+                        gpu_instance.save(update_fields=["status"])
 
-                        if credit.balance <= Decimal("0.00"):
-                            logger.warning(
-                                "⚠️ SUSPENDING LEASE %s due to pre-paid credit depletion! Balance: %s",
-                                locked_lease.id,
-                                credit.balance,
+                        try:
+                            from billing.models import UserCredit
+                            from leases.models import SystemAlert
+
+                            credit = UserCredit.objects.filter(user=locked_lease.user).first()
+                            bal = credit.balance if credit else Decimal("0.00")
+                            SystemAlert.objects.create(
+                                alert_type="billing",
+                                message=(
+                                    f"🚨 Prepaid lease suspended for tenant {locked_lease.user.username}: "
+                                    f"Balance depleted (${bal}). GPU {gpu_instance.serial_number} released."
+                                ),
                             )
-                            # Suspend the lease and release physical GPU
-                            locked_lease.status = RentalLeaseStatus.SUSPENDED_PAYMENT
-                            locked_lease.ended_at = now
-                            locked_lease.save(update_fields=["status", "ended_at"])
+                        except Exception:
+                            logger.exception("Failed to create credit depletion SystemAlert")
 
-                            gpu_instance.status = GPUInstanceStatus.AVAILABLE
-                            gpu_instance.save(update_fields=["status"])
-                            continue
+                        continue
 
-                    # 3. Generate metric snapshot if lease is still active
+                    # 2. Generate metric snapshot if lease is still active
                     self.generate_metrics(locked_lease)
                     simulated_count += 1
 
             except Exception:
                 logger.exception("Failed to process simulation tick for lease %s", lease.id)
 
-        # 4. Check postpaid arrears for 5-day grace period
+        # 4. Auto-settle eligible postpaid invoices
+        self._settle_eligible_postpaid_invoices(now)
+
+        # 5. Process dynamic fleet provisioning and dynamic client onboarding
+        self._process_dynamic_fleet_and_tenants()
+
+        # 6. Check postpaid arrears for 5-day grace period
         try:
             from billing.models import Invoice, InvoiceStatus
             from billing.services.ledger import invoice_flat_fee
@@ -177,7 +267,8 @@ class MetricsSimulatorWorker:
 
                         if not is_frozen:
                             logger.warning(
-                                "🚨 FREEZING tenant account for user %s due to unpaid postpaid invoice older than 5 simulated days!",
+                                "🚨 FREEZING tenant account for user %s due to unpaid postpaid invoice "
+                                "older than 5 simulated days!",
                                 inv.user.username,
                             )
                             # Freeze account (keep_dedicated_gpus=False releases physical GPUs and completes leases)

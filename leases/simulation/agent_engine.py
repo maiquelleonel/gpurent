@@ -152,6 +152,14 @@ class UpgradeSeekerAgent:
             "15.55"
         )
 
+        # 5. Gracefully terminate lease
+        updated_lease.status = RentalLeaseStatus.COMPLETED
+        updated_lease.ended_at = timezone.now()
+        updated_lease.save(update_fields=["status", "ended_at"])
+        if updated_lease.gpu_instance:
+            updated_lease.gpu_instance.status = GPUInstanceStatus.AVAILABLE
+            updated_lease.gpu_instance.save(update_fields=["status"])
+
         logger.info("UpgradeSeekerAgent: Upgraded model to H100. Total billed: %s", updated_lease.total_billed_amount)
         return {
             "lease": updated_lease,
@@ -314,3 +322,68 @@ class AgentEngine:
             logger.warning("⚠️ Some agent personas did not meet expected outcomes. Check reports.")
 
         return all_success
+
+    def spawn_persistent_demo_leases(self):
+        """
+        Provisions active, persistent demo client leases for continuous real-time dashboard simulation.
+        Leaves leases in ACTIVE state so background simulator ticks continuously decrement balances
+        and update telemetry.
+        """
+        logger.info("🎬 Spawning persistent demo client leases for continuous simulation...")
+        rtx_model = GPUModel.objects.filter(name__contains="RTX 4090").first()
+        l4_model = GPUModel.objects.filter(name__contains="L4").first()
+        h100_model = GPUModel.objects.filter(name__contains="H100").first()
+
+        if not rtx_model or not l4_model or not h100_model:
+            return
+
+        # 1. HappyPath Tenant (Prepaid RTX 4090 with $50.00 credits)
+        happy_user, _ = User.objects.get_or_create(username="happypath_agent")
+        UserCredit.objects.update_or_create(
+            user=happy_user,
+            defaults={
+                "balance": Decimal("50.00"),
+                "starting_balance": Decimal("50.00"),
+                "low_credit_alert_sent": False,
+            },
+        )
+        if not RentalLease.objects.filter(user=happy_user, status=RentalLeaseStatus.ACTIVE).exists():
+            provision_lease(happy_user, rtx_model.id, is_dedicated=False)
+
+        # 2. PromoPackage Tenant (Prepaid 3-month package with bonus)
+        promo_user, _ = User.objects.get_or_create(username="promopackage_agent")
+        if not UserCredit.objects.filter(user=promo_user).exists():
+            purchase_prepaid_package(promo_user, rtx_model, months=3, hours_per_month=730)
+        if not RentalLease.objects.filter(user=promo_user, status=RentalLeaseStatus.ACTIVE).exists():
+            provision_lease(promo_user, rtx_model.id, is_dedicated=False)
+
+        # 3. Postpaid Enterprise Tenant (H100 Postpaid - initialized near 30-day cycle closure)
+        postpaid_user, _ = User.objects.get_or_create(username="enterprise_postpaid")
+        if not RentalLease.objects.filter(user=postpaid_user, status=RentalLeaseStatus.ACTIVE).exists():
+            postpaid_lease = provision_lease(postpaid_user, h100_model.id, is_dedicated=False)
+            # Seed active cycle near 30-day (720h) completion to demonstrate closing & invoicing flow on initial ticks
+            from billing.models import ClientUsageCycle
+
+            ClientUsageCycle.objects.filter(client=postpaid_user, is_active=True).update(
+                hours_consumed=Decimal("719.5000"),
+                total_consumption=Decimal("3424.82"),
+                cycle_started_at=timezone.now() - timezone.timedelta(days=30),
+            )
+            # Offset lease started_at to match
+            postpaid_lease.started_at = timezone.now() - timezone.timedelta(days=30)
+            postpaid_lease.save(update_fields=["started_at"])
+
+        # 4. Delinquent Tenant (Prepaid with $0.25 to demonstrate auto-suspension and alert toasts)
+        delinquent_user, _ = User.objects.get_or_create(username="delinquent_agent")
+        UserCredit.objects.update_or_create(
+            user=delinquent_user,
+            defaults={
+                "balance": Decimal("0.25"),
+                "starting_balance": Decimal("5.00"),
+                "low_credit_alert_sent": False,
+            },
+        )
+        if not RentalLease.objects.filter(user=delinquent_user, status=RentalLeaseStatus.ACTIVE).exists():
+            provision_lease(delinquent_user, l4_model.id, is_dedicated=False)
+
+        logger.info("✨ Persistent demo leases spawned and actively simulating!")

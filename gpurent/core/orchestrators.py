@@ -1,14 +1,12 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 from django.db import transaction
 
-T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 
-class BaseOrchestrator(ABC, Generic[T]):
+class BaseOrchestrator[T](ABC):
     """
     Abstract Base Class representing the core orchestrator for the entire gpurent project.
     Provides project-wide standardization, code reuse (DRY) for atomic transactions,

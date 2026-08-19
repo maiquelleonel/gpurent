@@ -202,3 +202,28 @@ This document describes the business-centric User Stories derived from the Produ
 ### Compliance Metrics
 * **DRY Architecture:** Standardizes processing across the `BaseOrchestrator` clean-architecture layer.
 * **100% Code Coverage:** Fully tested with unit tests mocking time offsets to guarantee deterministic calculations.
+
+---
+
+## US17: Dynamic Continuous Simulation, Auto-Provisioning & Postpaid Settlement Lifecycle
+
+**As a** platform administrator and system auditor  
+**I want to** run a continuous dynamic simulation loop where new clients join, rent, upgrade, and terminate leases, GPUs are automatically provisioned with toast notifications, and postpaid cycles close and get paid  
+**So that** I can observe live, end-to-end cloud operations and financial billing transitions on the admin dashboard.
+
+### Acceptance Criteria
+1. **Active-Only Usage Cycles Monitor:** The live monitoring dashboard filters out closed/settled cycles (`is_active=True`), ensuring clean display without clutter.
+2. **Hardware Fleet Auto-Provisioning:** When triggered, provisions new physical GPU instances into the catalog and dispatches a `SystemAlert` of type `provisioning` ("🚀 Nova GPU provisionada e pronta para aluguel: [Model] ([Serial])").
+3. **Dynamic Client Persona Lifecycle:** Continuous simulation loop randomly spawns new tenant personas, rents available GPUs, performs mid-lease upgrades, and handles terminations across ticks.
+4. **Complete Postpaid Settlement:**
+   - Starts or advances postpaid accounts (e.g. `enterprise_postpaid`) to 30 simulated days (720h).
+   - Cycle closes (`cycle_ended_at = now`, `is_active = False`), issues `UNPAID` invoice, dispatches email notification and billing alert toast.
+   - Opens a fresh new active cycle for continuing compute.
+   - Within 1-2 simulation ticks, simulates tenant settlement via mock payment gateway, transitioning invoice to `PAID` and creating a payment confirmation alert toast.
+5. **Toast Notifications:** Django Admin alert endpoint renders distinct visual styles and icons for `provisioning` (🚀 blue), `billing` (💵 green), `thermal` (🔥 orange), and `delete` (❌ red).
+
+### Compliance Metrics
+* **No Race Conditions:** All billing adjustments and cycle transitions use atomic transactions (`transaction.atomic()`) and `select_for_update()`.
+* **Zero N+1 Queries:** Dashboard view fetches relations via `select_related` and limits rows.
+* **100% Test Coverage:** Comprehensive unit and integration tests covering the continuous lifecycle.
+

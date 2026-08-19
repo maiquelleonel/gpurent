@@ -88,7 +88,10 @@ WSGI_APPLICATION = "gpurent.wsgi.application"
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
 
-if "test" in sys.argv:
+# Test environment detection
+IS_TESTING = "test" in sys.argv or "pytest" in sys.modules or any("pytest" in arg for arg in sys.argv)
+
+if IS_TESTING:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -148,22 +151,17 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 
-# Email
+# Email (Django 6.1 MAILERS configuration)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-if os.getenv("EMAIL_HOST"):
-    MAILERS = {
-        "default": {
-            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
-            "HOST": os.getenv("EMAIL_HOST", "localhost"),
-            "PORT": int(os.getenv("EMAIL_PORT", 1025)),
-        }
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": os.getenv("EMAIL_HOST", "localhost"),
+            "port": int(os.getenv("EMAIL_PORT", 1025)),
+        },
     }
-else:
-    MAILERS = {
-        "default": {
-            "BACKEND": "django.core.mail.backends.console.EmailBackend",
-        }
-    }
+}
 
 # Time-Scaled Workload Simulator
 # 1 real-world minute = 2 simulated hours (default)
@@ -264,10 +262,16 @@ STEADY_QUEUE = Configuration.Options(
 
 
 # Disable logging during unit tests to keep terminal clean and show colored test dots
-if "test" in sys.argv:
+if IS_TESTING:
     import logging
 
     logging.disable(logging.CRITICAL)
+
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.locmem.EmailBackend",
+        }
+    }
 
     # Use ImmediateBackend during tests for synchronous task execution and fast assertions
     TASKS = {

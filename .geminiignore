@@ -1,0 +1,83 @@
+# ==============================================================================
+# .geminiignore / .antigravityignore
+# Otimizado para: Python (uv) + Django + PostgreSQL (Testes em SQLite :memory:)
+# Objetivo: Evitar consumo fantasma de tokens e vazamento de chaves de API
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. AMBIENTE VIRTUAL E DEPENDÊNCIAS (UV / PYTHON)
+# ------------------------------------------------------------------------------
+# Impede a IA de tentar ler arquivos binários ou bibliotecas instaladas
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ------------------------------------------------------------------------------
+# 2. BANCO DE DADOS E INFRAESTRUTURA
+# ------------------------------------------------------------------------------
+# Mesmo usando Postgres, impede que dumps, caches ou traços de SQLite inflem os tokens
+*.sql
+*.sqlite3
+db.sqlite3
+*.dump
+.data/
+
+# ------------------------------------------------------------------------------
+# 3. SEGURANÇA E CHAVES DE API (CRUCIAL)
+# ------------------------------------------------------------------------------
+# Impede o Gemini de ler suas credenciais confidenciais locais e tokens de acesso
+.env
+*.env
+.env.*
+secrets/
+certs/
+*.pem
+*.key
+
+# ------------------------------------------------------------------------------
+# 4. LOGS E ARQUIVOS TEMPORÁRIOS DO SISTEMA
+# ------------------------------------------------------------------------------
+# Outputs longos de erros antigos geram o efeito "bola de neve" no custo da API
+*.log
+logs/
+tmp/
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+
+# ------------------------------------------------------------------------------
+# 5. HISTÓRICO DE MIGRAÇÕES DO DJANGO
+# ------------------------------------------------------------------------------
+# A IA só precisa ler o seu models.py atual para programar.
+# Ignorar o histórico de migrações economiza centenas de milhares de tokens.
+**/migrations/*.py
+**/migrations/__pycache__/
+
+# ------------------------------------------------------------------------------
+# 6. ESTADO INTERNO E CACHES DE AGENTES DE IA
+# ------------------------------------------------------------------------------
+# Impede que as ferramentas leiam o próprio histórico salvo, evitando loops infinitos
+.antigravitycli/
+.codebase-memory/
+.cursorignore
+.cursorindexingignore
+
+# ------------------------------------------------------------------------------
+# 7. ARQUIVOS ESTÁTICOS, RELATÓRIOS E NOTEBOOKS
+# ------------------------------------------------------------------------------
+staticfiles/
+alliaadmin/static/
+e2e_reports/
+*.ipynb
+ats/prompts/*.out

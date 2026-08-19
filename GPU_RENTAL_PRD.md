@@ -131,6 +131,50 @@ To secure API access and monitor tenant usage volume, the application tracks req
   * **Upgrade Seekers:** Initiate lease on L4, request mid-lease upgrade to H100 after 2 minutes (simulated 4 hours), verifying upgrade fees and dynamic rate recalculations.
   * **Abusive Clients:** Spin up multiple shared leases on RTX/L4, bombarding the API to trigger `429 Too Many Requests` rate limiting.
 
+### Feature 10: Client Usage Cycles, Fractional Billing & Live HTMX Telemetry Counters
+* **Fractional Usage Accumulation (Hours & Minutes):**
+  * Time and usage are accumulated as fractional hours (minutes and seconds converted into decimal hours, e.g. `simulated_seconds / 3600.0`).
+  * If an instance is stopped mid-hour, only the exact elapsed fraction is charged.
+* **Non-Hourly Billing Invariant:**
+  * Invoices are **NOT** generated on every tick or individual hour consumed.
+  * Invoices are exclusively generated for:
+    1. **Pre-paid package purchases / credit recharges** (Status: `PAID`).
+    2. **Post-paid 30-day cycle completion** (Status: `UNPAID`, generating billing upon payment).
+    3. **Flat fees** (mid-lease tier upgrades, dedicated upfront deposits, unfreeze fees).
+* **Client Usage Cycles Table (`ClientUsageCycle`):**
+  * Tracks historical and active billing cycles with fields:
+    * `client` (User)
+    * `plan_type` (`PREPAID` / `POSTPAID`)
+    * `gpu` (GPU model name)
+    * `hours_consumed` (Cumulative fractional hours)
+    * `total_consumption` (Cumulative cost in $)
+    * `total_credits` (Total credits loaded for this cycle)
+    * `cycle_ended_at` (Timestamp of cycle conclusion, or `"-"` if open/active)
+  * **Lifecycle Triggers:**
+    * **Post-paid:** Closes cycle after 30 simulated days, sets `cycle_ended_at`, generates `Invoice` (UNPAID), and generates billing once paid.
+    * **Pre-paid:** Real-time balance decrement. When credits reach `$0.00`, sets `cycle_ended_at`, suspends lease. When client recharges credits, opens a new row with added credits and `cycle_ended_at = "-"`.
+* **Live Admin HTMX Telemetry & Balance Counters:**
+  * Real-time HTMX polling dashboard inside Django Admin displaying:
+    1. **Client Balance Counters:** Live client credit balances and status.
+    2. **Resource Consumption Telemetry:** Real-time GPU/CPU compute load %, VRAM usage, and temperature gauges.
+    3. **Client Usage Cycles Table:** Live view of all open and closed usage cycles.
+
+### Feature 11: Dynamic Fleet Simulation, Hardware Provisioning & Postpaid Settlement Loop
+* **Active-Only Usage Cycles Monitor:**
+  * To prevent dashboard clutter, the live telemetry cycles table filters exclusively for active cycles (`is_active=True`). When a cycle ends and is paid/settled, it is marked inactive and drops from the live monitor.
+* **Continuous Multi-Agent Lifecycle Engine:**
+  * Rather than running a static one-off test script, the simulator orchestrates continuous live events across elapsed ticks:
+    * **Dynamic Signups & Rentals:** Spawns new tenant personas dynamically (e.g. `dynamic_client_X`), provisions available GPUs, and initiates active telemetry.
+    * **Mid-Lease Upgrades & Terminations:** Randomly schedules dynamic plan migrations (e.g., L4 -> A100/H100) and graceful lease completions.
+    * **Hardware Fleet Auto-Provisioning:** Periodically provisions new physical GPU instances (`GPUInstance`) into the catalog as `AVAILABLE` and triggers a real-time admin toast alert (`SystemAlert` of type `provisioning` with icon 🚀).
+* **Complete Postpaid Settlement Lifecycle:**
+  * Simulates the full end-to-end postpaid lifecycle:
+    1. **Cycle Close:** At 30 simulated days (720 hours), active postpaid cycle closes (`cycle_ended_at = now`, `is_active = False`) and opens a new active cycle.
+    2. **Invoice Issuance:** Generates `Invoice` (`UNPAID`), dispatches transactional email notification, and creates a billing `SystemAlert`.
+    3. **Automated Tenant Payment:** After 1-2 simulation ticks, the simulated enterprise tenant pays the invoice via mock gateway.
+    4. **Payment Confirmation & Compensation:** Invoice transitions to `PAID`, issuing a payment confirmation `SystemAlert` toast ("💵 Fatura pós-paga de $X paga com sucesso por Y").
+    5. **Live Dashboard Sync:** The compensated/paid cycle drops from the live monitoring table cleanly.
+
 ---
 
 ## 4. Technical Stack & Dependencies

@@ -6,7 +6,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from billing.models import Invoice, InvoiceStatus, UserCredit
+from billing.models import ClientUsageCycle, Invoice, InvoiceStatus, PlanType, UserCredit
+from billing.services.ledger import invoice_lease_usage
 from billing.services.payment_gateway import (
     PaymentGatewayException,
     PaymentTimeoutException,
@@ -93,11 +94,12 @@ class BillingAndPaymentTestCase(TestCase):
         # $1.00 - $2.64 = -$1.64
         self.assertEqual(credit.balance, Decimal("-1.64"))
 
-        # Verify Invoice was created and marked as PAID (since it's a prepaid model, prepaid system settles it)
-        invoice = Invoice.objects.filter(lease_id=lease.id).first()
-        self.assertIsNotNone(invoice)
-        self.assertEqual(invoice.amount, Decimal("2.64"))
-        self.assertEqual(invoice.status, InvoiceStatus.PAID)
+        # Verify ClientUsageCycle recorded the usage and marked cycle as closed
+        cycle = ClientUsageCycle.objects.filter(client=self.user).first()
+        self.assertIsNotNone(cycle)
+        self.assertEqual(cycle.total_consumption, Decimal("2.64"))
+        self.assertFalse(cycle.is_active)
+        self.assertIsNotNone(cycle.cycle_ended_at)
 
     # ==========================================
     # US04 - TASK 4.2: VOLUME DISCOUNT ENFORCEMENT
@@ -144,9 +146,20 @@ class BillingAndPaymentTestCase(TestCase):
             self.assertEqual(lease.total_billed_amount, Decimal("0.79"))
             self.assertEqual(lease.volume_discount_applied, Decimal("10.00"))
 
-            invoice = Invoice.objects.filter(lease_id=lease.id).first()
-            self.assertEqual(invoice.amount, Decimal("0.79"))
-            self.assertIn("10% Volume Discount Applied", invoice.description)
+        # Verify client usage cycle accumulated the consumption
+
+        cycle = ClientUsageCycle.objects.filter(client=self.user, is_active=True).first()
+        self.assertIsNotNone(cycle)
+        self.assertGreater(cycle.total_consumption, Decimal("0.00"))
+
+        # Verify explicit invoicing records the volume discount in description
+        lease_to_invoice = leases[0]
+        lease_to_invoice.started_at = timezone.now() - timezone.timedelta(minutes=1)
+        lease_to_invoice.save()
+        invoice_lease_usage(lease_to_invoice)
+        invoice = Invoice.objects.filter(lease_id=lease_to_invoice.id).first()
+        self.assertIsNotNone(invoice)
+        self.assertIn("10% Volume Discount Applied", invoice.description)
 
     # ==========================================
     # US04 - TASK 4.3: DEDICATED UPFRONT PAYMENT
@@ -388,7 +401,7 @@ class BillingAndPaymentTestCase(TestCase):
             vram_capacity_gb=24,
             price_per_hour=Decimal("0.50"),
         )
-        l4_instance = GPUInstance.objects.create(
+        GPUInstance.objects.create(
             serial_number="GPU-L4-UPGRADE-TEST",
             model=l4_model,
             status=GPUInstanceStatus.AVAILABLE,
@@ -410,12 +423,11 @@ class BillingAndPaymentTestCase(TestCase):
         self.assertEqual(credit.frozen_prepaid_balance, Decimal("35.00"))
         self.assertEqual(credit.balance, Decimal("0.00"))
 
-        # Subsequent postpaid invoice is abated
+        # Subsequent postpaid settlement abates the frozen balance
         upgraded_lease.started_at = timezone.now() - timezone.timedelta(minutes=5)
         upgraded_lease.save(update_fields=["started_at"])
 
-        worker = MetricsSimulatorWorker()
-        worker.tick()
+        invoice_lease_usage(upgraded_lease)
 
         invoice = (
             Invoice.objects.filter(lease_id=upgraded_lease.id, description__contains="Usage invoice")
@@ -436,7 +448,7 @@ class BillingAndPaymentTestCase(TestCase):
             vram_capacity_gb=24,
             price_per_hour=Decimal("0.50"),
         )
-        l4_instance = GPUInstance.objects.create(
+        GPUInstance.objects.create(
             serial_number="GPU-L4-FLAT-FEE-TEST",
             model=l4_model,
             status=GPUInstanceStatus.AVAILABLE,
@@ -580,3 +592,77 @@ class BillingAndPaymentTestCase(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(response.data["bonus_applied"])
         self.assertEqual(response.data["bonus_amount"], Decimal("321.20"))
+
+    # ==========================================
+    # US16: CLIENT USAGE CYCLES & FRACTIONAL USAGE
+    # ==========================================
+    def test_client_usage_cycle_accumulation_fractional_hours(self):
+        UserCredit.objects.create(user=self.user, balance=Decimal("100.00"))
+        lease = provision_lease(self.user, self.rtx_model.id, is_dedicated=False)
+
+        # Simulate elapsed time of 30 real seconds = 1 simulated hour (cost $0.44)
+        lease.started_at = timezone.now() - timezone.timedelta(seconds=30)
+        lease.save(update_fields=["started_at"])
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        cycle = ClientUsageCycle.objects.filter(client=self.user, is_active=True).first()
+        self.assertIsNotNone(cycle)
+        self.assertEqual(cycle.plan_type, PlanType.PREPAID)
+        self.assertEqual(cycle.gpu, self.rtx_model.name)
+        self.assertEqual(cycle.hours_consumed, Decimal("1.0000"))
+        self.assertEqual(cycle.total_consumption, Decimal("0.44"))
+        self.assertIsNone(cycle.cycle_ended_at)
+        self.assertTrue(cycle.is_active)
+
+        # Assert no premature invoice was emitted during normal running ticks
+        invoices_count = Invoice.objects.filter(lease_id=lease.id).count()
+        self.assertEqual(invoices_count, 0)
+
+    def test_postpaid_thirty_day_cycle_generates_invoice_and_rolls_new_cycle(self):
+        h100_instance = GPUInstance.objects.create(
+            serial_number="GPU-H100-CYCLE-TEST",
+            model=self.h100_model,
+            status=GPUInstanceStatus.AVAILABLE,
+            is_dedicated=False,
+        )
+        lease = RentalLease.objects.create(
+            user=self.user,
+            gpu_instance=h100_instance,
+            status=RentalLeaseStatus.ACTIVE,
+            started_at=timezone.now() - timezone.timedelta(minutes=1),
+        )
+        # Create active postpaid cycle started 31 simulated days ago
+        # (with TIME_SCALE_FACTOR=120, 31 days = 372 real minutes)
+        cycle = ClientUsageCycle.objects.create(
+            client=self.user,
+            plan_type=PlanType.POSTPAID,
+            gpu=self.h100_model.name,
+            hours_consumed=Decimal("720.0000"),
+            total_consumption=Decimal("1353.60"),
+            total_credits=Decimal("0.00"),
+            cycle_started_at=timezone.now() - timezone.timedelta(minutes=372),
+            cycle_ended_at=None,
+            is_active=True,
+        )
+
+        worker = MetricsSimulatorWorker()
+        worker.tick()
+
+        cycle.refresh_from_db()
+        self.assertFalse(cycle.is_active)
+        self.assertIsNotNone(cycle.cycle_ended_at)
+
+        # Assert 30-day postpaid invoice was generated
+        invoice = Invoice.objects.filter(lease_id=lease.id, status=InvoiceStatus.UNPAID).first()
+        self.assertIsNotNone(invoice)
+        self.assertGreater(invoice.amount, Decimal("1350.00"))
+        self.assertIn("30-Day Postpaid Usage Invoice", invoice.description)
+
+        # Assert a new active cycle was opened
+        new_cycle = ClientUsageCycle.objects.filter(client=self.user, is_active=True).first()
+        self.assertIsNotNone(new_cycle)
+        self.assertNotEqual(new_cycle.id, cycle.id)
+        self.assertEqual(new_cycle.hours_consumed, Decimal("0.0000"))
+        self.assertEqual(new_cycle.total_consumption, Decimal("0.00"))

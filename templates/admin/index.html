@@ -1,0 +1,304 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static log %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static "admin/css/dashboard.css" %}">
+  <style>
+    /* Modern 3-column side-by-side flex layout for Admin Dashboard */
+    .dashboard-3col-container {
+      display: flex;
+      flex-direction: row;
+      gap: 20px;
+      align-items: flex-start;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .dashboard-col-entities {
+        flex: 0 0 25%;
+        min-width: 247px;
+        max-width: 25%;
+    }
+
+    .dashboard-col-actions {
+      flex: 0 0 10%;
+      min-width: 250px;
+      max-width: 10%;
+    }
+
+    .dashboard-col-telemetry {
+      flex: 1 1 65%;
+      min-width: 0;
+      min-width: 65%
+    }
+
+    /* Reset legacy float rules from Django's colMS on dashboard */
+    #content.colMS, #content.colM {
+      margin-right: 0 !important;
+      margin-left: 0 !important;
+    }
+    #content-main {
+      float: none !important;
+      width: 100% !important;
+    }
+    #content-related {
+      float: none !important;
+      width: 100% !important;
+      margin-right: 0 !important;
+      position: static !important;
+    }
+
+    /* Prevent ugly text wrapping in table headers */
+    .live-dashboard-container table th,
+    .live-dashboard-container table td {
+      word-break: normal !important;
+      white-space: nowrap !important;
+    }
+
+    @media (max-width: 1280px) {
+      .dashboard-3col-container {
+        flex-wrap: wrap;
+      }
+      .dashboard-col-entities {
+        flex: 1 1 300px;
+      }
+      .dashboard-col-actions {
+        flex: 1 1 300px;
+      }
+      .dashboard-col-telemetry {
+        flex: 1 1 100%;
+        min-width: 100%;
+      }
+    }
+
+    .dashboard #content {
+        width: 90%;
+    }
+
+    /* CSS Variables for Light / Dark Mode Dashboard Harmony */
+    :root {
+      --dash-card-bg: #ffffff;
+      --dash-card-border: #e2e8f0;
+      --dash-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      --dash-title-fg: #334155;
+      --dash-th-bg: #f8fafc;
+      --dash-th-border: #e2e8f0;
+      --dash-th-fg: #475569;
+      --dash-row-border: #f1f5f9;
+      --dash-row-fg: #334155;
+      --dash-row-bold-fg: #0f172a;
+      --dash-row-muted-fg: #64748b;
+      --dash-active-cycle-bg: #f0fdf4;
+      --dash-progress-track: #e2e8f0;
+      --dash-loading-bg: #f8fafc;
+      --dash-loading-border: #e2e8f0;
+      --dash-loading-fg: #64748b;
+
+      /* Balances */
+      --dash-bal-active-bg: #f0fdf4;
+      --dash-bal-active-border: #bbf7d0;
+      --dash-bal-active-fg: #16a34a;
+
+      --dash-bal-warn-bg: #fefce8;
+      --dash-bal-warn-border: #fde047;
+      --dash-bal-warn-fg: #ca8a04;
+
+      --dash-bal-danger-bg: #fef2f2;
+      --dash-bal-danger-border: #fca5a5;
+      --dash-bal-danger-fg: #dc2626;
+
+      /* Badges */
+      --dash-badge-prepaid-bg: #dbeafe;
+      --dash-badge-prepaid-fg: #1e40af;
+      --dash-badge-postpaid-bg: #ede9fe;
+      --dash-badge-postpaid-fg: #5b21b6;
+      --dash-badge-alert-bg: #fee2e2;
+      --dash-badge-alert-fg: #dc2626;
+      --dash-badge-normal-bg: #f0fdf4;
+      --dash-badge-normal-fg: #16a34a;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --dash-card-bg: #1e293b;
+        --dash-card-border: #334155;
+        --dash-card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+        --dash-title-fg: #f1f5f9;
+        --dash-th-bg: #0f172a;
+        --dash-th-border: #334155;
+        --dash-th-fg: #94a3b8;
+        --dash-row-border: #334155;
+        --dash-row-fg: #cbd5e1;
+        --dash-row-bold-fg: #f8fafc;
+        --dash-row-muted-fg: #94a3b8;
+        --dash-active-cycle-bg: rgba(34, 197, 94, 0.1);
+        --dash-progress-track: #334155;
+        --dash-loading-bg: #1e293b;
+        --dash-loading-border: #334155;
+        --dash-loading-fg: #94a3b8;
+
+        /* Balances */
+        --dash-bal-active-bg: rgba(34, 197, 94, 0.12);
+        --dash-bal-active-border: rgba(34, 197, 94, 0.35);
+        --dash-bal-active-fg: #4ade80;
+
+        --dash-bal-warn-bg: rgba(234, 179, 8, 0.12);
+        --dash-bal-warn-border: rgba(234, 179, 8, 0.35);
+        --dash-bal-warn-fg: #facc15;
+
+        --dash-bal-danger-bg: rgba(239, 68, 68, 0.15);
+        --dash-bal-danger-border: rgba(239, 68, 68, 0.4);
+        --dash-bal-danger-fg: #f87171;
+
+        /* Badges */
+        --dash-badge-prepaid-bg: rgba(59, 130, 246, 0.2);
+        --dash-badge-prepaid-fg: #93c5fd;
+        --dash-badge-postpaid-bg: rgba(168, 85, 247, 0.2);
+        --dash-badge-postpaid-fg: #d8b4fe;
+        --dash-badge-alert-bg: rgba(239, 68, 68, 0.25);
+        --dash-badge-alert-fg: #fca5a5;
+        --dash-badge-normal-bg: rgba(34, 197, 94, 0.2);
+        --dash-badge-normal-fg: #86efac;
+      }
+    }
+
+    [data-theme="dark"], html[data-theme="dark"], body[data-theme="dark"] {
+      --dash-card-bg: #1e293b;
+      --dash-card-border: #334155;
+      --dash-card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+      --dash-title-fg: #f1f5f9;
+      --dash-th-bg: #0f172a;
+      --dash-th-border: #334155;
+      --dash-th-fg: #94a3b8;
+      --dash-row-border: #334155;
+      --dash-row-fg: #cbd5e1;
+      --dash-row-bold-fg: #f8fafc;
+      --dash-row-muted-fg: #94a3b8;
+      --dash-active-cycle-bg: rgba(34, 197, 94, 0.1);
+      --dash-progress-track: #334155;
+      --dash-loading-bg: #1e293b;
+      --dash-loading-border: #334155;
+      --dash-loading-fg: #94a3b8;
+
+      /* Balances */
+      --dash-bal-active-bg: rgba(34, 197, 94, 0.12);
+      --dash-bal-active-border: rgba(34, 197, 94, 0.35);
+      --dash-bal-active-fg: #4ade80;
+
+      --dash-bal-warn-bg: rgba(234, 179, 8, 0.12);
+      --dash-bal-warn-border: rgba(234, 179, 8, 0.35);
+      --dash-bal-warn-fg: #facc15;
+
+      --dash-bal-danger-bg: rgba(239, 68, 68, 0.15);
+      --dash-bal-danger-border: rgba(239, 68, 68, 0.4);
+      --dash-bal-danger-fg: #f87171;
+
+      /* Badges */
+      --dash-badge-prepaid-bg: rgba(59, 130, 246, 0.2);
+      --dash-badge-prepaid-fg: #93c5fd;
+      --dash-badge-postpaid-bg: rgba(168, 85, 247, 0.2);
+      --dash-badge-postpaid-fg: #d8b4fe;
+      --dash-badge-alert-bg: rgba(239, 68, 68, 0.25);
+      --dash-badge-alert-fg: #fca5a5;
+      --dash-badge-normal-bg: rgba(34, 197, 94, 0.2);
+      --dash-badge-normal-fg: #86efac;
+    }
+  </style>
+{% endblock %}
+
+{% block coltype %}colM{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+
+{% block content %}
+<div class="dashboard-3col-container">
+
+  <!-- Coluna 1: Tabela de Links / Entidades -->
+  <div class="dashboard-col-entities">
+    <div id="content-main">
+      {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+    </div>
+  </div>
+
+  <!-- Coluna 2: Últimas Modificações (Recent Actions) -->
+  <div class="dashboard-col-actions">
+    <div id="content-related">
+      <div class="module" id="recent-actions-module">
+        <h2>{% translate 'Recent actions' %}</h2>
+        <h3>{% translate 'My actions' %}</h3>
+        {% get_admin_log 10 as admin_log for_user user %}
+        {% if not admin_log %}
+          <p>{% translate 'None available' %}</p>
+        {% else %}
+          <ul class="actionlist">
+            {% for entry in admin_log %}
+              <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
+                {% if entry.is_deletion or not entry.get_admin_url %}
+                  {{ entry.object_repr }}
+                {% else %}
+                  <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+                {% endif %}
+                <br>
+                {% if entry.content_type %}
+                  <span class="mini quiet">{% filter capfirst %}{{ entry.content_type.name }}{% endfilter %}</span>
+                {% else %}
+                  <span class="mini quiet">{% translate 'Unknown content' %}</span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Coluna 3: Painel de Monitoramento (Live Telemetry & Billing Dashboard) -->
+  <div class="dashboard-col-telemetry">
+    <div id="live-monitoring-dashboard"
+         hx-get="{% url 'admin_live_dashboard' %}"
+         hx-trigger="load, every 3s"
+         hx-swap="innerHTML">
+      <div style="padding: 15px; background: var(--dash-loading-bg); border: 1px solid var(--dash-loading-border); border-radius: 8px; font-style: italic; color: var(--dash-loading-fg);">
+        ⚡ Loading real-time GPU telemetry, client balances, and consumption cycles...
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Scroll Preservation Script for HTMX Polls -->
+<script>
+  (function() {
+    var savedScrolls = {};
+    document.addEventListener("htmx:beforeSwap", function(evt) {
+      if (evt.detail && evt.detail.target) {
+        var scrollables = evt.detail.target.querySelectorAll("[data-preserve-scroll]");
+        scrollables.forEach(function(el, idx) {
+          var key = el.getAttribute("id") || ("scroll_" + idx);
+          savedScrolls[key] = {
+            left: el.scrollLeft,
+            top: el.scrollTop
+          };
+        });
+      }
+    });
+
+    document.addEventListener("htmx:afterSwap", function(evt) {
+      if (evt.detail && evt.detail.target) {
+        var scrollables = evt.detail.target.querySelectorAll("[data-preserve-scroll]");
+        scrollables.forEach(function(el, idx) {
+          var key = el.getAttribute("id") || ("scroll_" + idx);
+          if (savedScrolls[key]) {
+            el.scrollLeft = savedScrolls[key].left;
+            el.scrollTop = savedScrolls[key].top;
+          }
+        });
+      }
+    });
+  })();
+</script>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}

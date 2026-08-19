@@ -3,12 +3,14 @@ import logging
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Count, Q
 from django.http import HttpResponse
+from django.shortcuts import render
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from leases.models import GPUInstanceStatus, GPUModel, SystemAlert
+from billing.models import ClientUsageCycle, UserCredit
+from leases.models import GPUInstanceStatus, GPUModel, MetricSnapshot, RentalLease, RentalLeaseStatus, SystemAlert
 from leases.orchestrators.lease_flow import provision_lease
 from leases.orchestrators.upgrade_flow import upgrade_lease_tier
 from leases.serializers import RentalLeaseSerializer
@@ -148,13 +150,34 @@ def admin_live_alerts_endpoint(request):
             alert_title = "THERMAL WATCHDOG"
             border_color = "#ea580c"  # orange-600
             bg_color = "#ffedd5"  # orange-100
+        elif alert.alert_type in ["provisioning", "hardware"]:
+            alert_icon = "🚀"
+            alert_title = "FLEET PROVISIONED"
+            border_color = "#2563eb"  # blue-600
+            bg_color = "#dbeafe"  # blue-100
+
+        font_stack = "'Roboto', 'Lucida Grande', 'DejaVu Sans', 'Bitstream Vera Sans', Verdana, Arial, sans-serif"
+        card_style = (
+            f"box-sizing: border-box; width: 100%; max-width: 240px; background-color: {bg_color}; "
+            f"border: 1px solid {border_color}; color: #000000; padding: 12px; font-family: {font_stack}; "
+            f"font-size: 13px; line-height: 1.5; transition: opacity 0.5s ease-out; "
+            f"box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 5px solid {border_color};"
+        )
+        header_style = (
+            "font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; "
+            "align-items: center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px;"
+        )
+        close_btn_style = "cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1;"
+        close_onclick = (
+            "var toast=this.closest('.django-admin-alert'); toast.style.opacity='0'; "
+            "setTimeout(function(){ toast.remove(); }, 500);"
+        )
 
         toast_html = f"""
-        <div class="django-admin-alert"
-             style="box-sizing: border-box; width: 100%; max-width: 240px; background-color: {bg_color}; border: 1px solid {border_color}; color: #000000; padding: 12px; font-family: 'Roboto', 'Lucida Grande', 'DejaVu Sans', 'Bitstream Vera Sans', Verdana, Arial, sans-serif; font-size: 13px; line-height: 1.5; transition: opacity 0.5s ease-out; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 5px solid {border_color};">
-          <div style="font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 4px;">
+        <div class="django-admin-alert" style="{card_style}">
+          <div style="{header_style}">
             <span style="display: flex; align-items: center; gap: 4px;">{alert_icon} {alert_title}</span>
-            <span style="cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1;" onclick="var toast=this.closest('.django-admin-alert'); toast.style.opacity='0'; setTimeout(function(){{ toast.remove(); }}, 500);">&times;</span>
+            <span style="{close_btn_style}" onclick="{close_onclick}">&times;</span>
           </div>
           <div style="word-wrap: break-word;">{alert.message}</div>
           <script>
@@ -178,3 +201,43 @@ def admin_live_alerts_endpoint(request):
         alert.save(update_fields=["is_read"])
 
     return HttpResponse("\n".join(html_fragments))
+
+
+@staff_member_required
+def admin_live_dashboard_endpoint(request):
+    """
+    HTMX polling endpoint for real-time admin dashboard metrics.
+    Renders live client balances, active GPU/compute hardware telemetry,
+    and client consumption cycles.
+    """
+    user_credits = UserCredit.objects.select_related("user").order_by("user__username")
+    active_leases = (
+        RentalLease.objects.filter(status=RentalLeaseStatus.ACTIVE)
+        .select_related("user", "gpu_instance__model")
+        .order_by("-started_at")
+    )
+
+    gpu_metrics = []
+    for lease in active_leases:
+        if lease.gpu_instance:
+            latest_snap = MetricSnapshot.objects.filter(gpu_instance=lease.gpu_instance).order_by("-timestamp").first()
+            gpu_metrics.append(
+                {
+                    "lease": lease,
+                    "gpu": lease.gpu_instance,
+                    "model": lease.gpu_instance.model,
+                    "snapshot": latest_snap,
+                }
+            )
+
+    usage_cycles = ClientUsageCycle.objects.filter(is_active=True).select_related("client").order_by("-created_at")[:25]
+
+    return render(
+        request,
+        "admin/live_dashboard_fragment.html",
+        {
+            "user_credits": user_credits,
+            "gpu_metrics": gpu_metrics,
+            "usage_cycles": usage_cycles,
+        },
+    )

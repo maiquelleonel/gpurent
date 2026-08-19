@@ -3,6 +3,9 @@ import time
 
 from django.core.management.base import BaseCommand
 
+from billing.models import UserCredit
+from billing.services.ledger import is_prepaid_model
+from leases.models import RentalLease, RentalLeaseStatus
 from leases.simulation.worker import MetricsSimulatorWorker
 
 logger = logging.getLogger(__name__)
@@ -35,11 +38,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Booting Simulated Client Agent Engine..."))
             from leases.simulation.agent_engine import AgentEngine
 
-            success = AgentEngine().run_all()
+            agent_engine = AgentEngine()
+            success = agent_engine.run_all()
             if success:
                 self.stdout.write(self.style.SUCCESS("All agent personas completed successfully!"))
             else:
                 self.stdout.write(self.style.ERROR("Some agent personas failed."))
+
+            agent_engine.spawn_persistent_demo_leases()
+            self.stdout.write(self.style.SUCCESS("Active demo workloads initialized for live dashboard."))
 
         worker = MetricsSimulatorWorker(interval=interval)
 
@@ -48,7 +55,25 @@ class Command(BaseCommand):
                 start_time = time.time()
                 count = worker.tick()
                 if count > 0:
-                    self.stdout.write(self.style.SUCCESS(f"Simulated telemetries for {count} active lease(s)."))
+                    self.stdout.write(self.style.SUCCESS(f"Simulated telemetries for {count} active lease(s):"))
+                    active_leases = RentalLease.objects.filter(status=RentalLeaseStatus.ACTIVE).select_related(
+                        "user", "gpu_instance__model"
+                    )
+                    for lease in active_leases:
+                        if lease.gpu_instance and lease.gpu_instance.model:
+                            model_name = lease.gpu_instance.model.name
+                            is_prepaid = is_prepaid_model(lease.gpu_instance.model)
+                        else:
+                            model_name = "N/A"
+                            is_prepaid = False
+                        tier = "Pre-paid" if is_prepaid else "Post-paid"
+                        credit = UserCredit.objects.filter(user=lease.user).first()
+                        balance_str = f"${credit.balance}" if credit else "$0.00"
+                        self.stdout.write(
+                            f"   • Lease {str(lease.id)[:8]}.. | User: {lease.user.username} | "
+                            f"{model_name} [{tier}] | Billed: ${lease.total_billed_amount} | "
+                            f"Balance: {balance_str}"
+                        )
 
                 # Adjust sleep time to compensate for the tick processing duration
                 elapsed = time.time() - start_time

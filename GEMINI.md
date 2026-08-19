@@ -7,6 +7,7 @@ Este arquivo dita as regras de inicialização e as diretivas de boot para qualq
 ## 🚨 1. REGRA DE OURO DE INICIALIZAÇÃO (First-Turn Command Rule)
 
 - **Ação Número Um (OBRIGATÓRIA):** Ao iniciar esta sessão, na sua **PRIMEIRA rodada de conversa (First Turn)**, você DEVE executar imediatamente o comando de ferramenta `read_file` para carregar e analisar a especificação da skill em `django_guardian/skills/SKILL.md`.
+- **Camandos disponíveis**: sempre leia o arquivo `Justfile` na raiz do projeto para ter acesso aos comandos que vc tem disponivel para o projeto. Eles são pensados pra otimizar tokens e soa de uso obrigatorio.
 - **Sem Ações Prematuras:** Você está expressamente PROIBIDO de propor estratégias, gerar códigos, responder perguntas ou aplicar qualquer modificação sem antes ter lido o `SKILL.md` por completo.
 - **🛡️ Validação de Skill Obrigatória (Django Guardian):**
   - Você deve verificar se a skill `django-guardian` está instalada e ativa nesta sessão (ela deve ser ativada por demanda via `activate_skill` caso esteja instalada).

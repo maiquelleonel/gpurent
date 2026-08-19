@@ -36,3 +36,44 @@ def send_low_credit_warning_email(user_id):
         recipient_list=[recipient],
     )
     logger.info("Sent low credit warning email to: %s", recipient)
+
+
+@task(queue_name="emails")
+def send_invoice_email(user_id, invoice_id, is_payment_receipt=False):
+    """
+    Asynchronously sends an invoice or payment receipt email to a user.
+    """
+    try:
+        user = User.objects.get(pk=user_id)
+        from billing.models import Invoice
+
+        invoice = Invoice.objects.get(pk=invoice_id)
+    except (User.DoesNotExist, Exception) as e:
+        logger.error("Failed to send invoice email: %s", e)
+        return
+
+    if is_payment_receipt:
+        subject = f"Receipt for Invoice #{str(invoice.id)[:8]}"
+        message = (
+            f"Hi {user.username},\n\n"
+            f"Thank you for your payment of ${invoice.amount} for: {invoice.description}.\n"
+            f"Status: PAID.\n\n"
+            f"Best regards,\nThe GPURent Team"
+        )
+    else:
+        subject = f"New Invoice Generated #{str(invoice.id)[:8]}"
+        message = (
+            f"Hi {user.username},\n\n"
+            f"A new invoice of ${invoice.amount} has been issued for your recent cycle: {invoice.description}.\n"
+            f"Please settle this invoice within 5 days to keep your services active.\n\n"
+            f"Best regards,\nThe GPURent Team"
+        )
+
+    recipient = user.email or f"{user.username}@example.com"
+    send_mail(
+        subject=subject,
+        message=message,
+        from_email="billing@gpurent.com",
+        recipient_list=[recipient],
+    )
+    logger.info("Sent invoice email (receipt=%s) to: %s", is_payment_receipt, recipient)

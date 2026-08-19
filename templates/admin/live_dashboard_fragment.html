@@ -1,0 +1,174 @@
+{% load i18n %}
+<div class="live-dashboard-container" style="display: flex; flex-direction: column; gap: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+
+  <!-- Header & Live Pulse Status -->
+  <div style="display: flex; justify-content: space-between; align-items: center; background: #1e293b; color: #ffffff; padding: 12px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
+    <div style="font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px;">
+      <span style="display: inline-block; width: 10px; height: 10px; background-color: #22c55e; border-radius: 50%; box-shadow: 0 0 8px #22c55e;"></span>
+      <span>Live Real-Time Telemetry & Billing Dashboard</span>
+    </div>
+    <div style="font-size: 12px; color: #94a3b8;">
+      ⚡ Auto-refreshing via HTMX (3s)
+    </div>
+  </div>
+
+  <!-- Section 1: Client Balance Counters -->
+  <div style="background: var(--dash-card-bg, #ffffff); border: 1px solid var(--dash-card-border, #e2e8f0); border-radius: 8px; padding: 16px; box-shadow: var(--dash-card-shadow, 0 1px 3px rgba(0,0,0,0.05));">
+    <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--dash-title-fg, #334155); display: flex; align-items: center; gap: 6px;">
+      💳 <span>Client Balance Counters</span>
+    </h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px;">
+      {% for credit in user_credits %}
+        <div style="border: 1px solid {% if credit.balance <= 0 %}var(--dash-bal-danger-border, #fca5a5){% elif credit.balance <= 10 %}var(--dash-bal-warn-border, #fde047){% else %}var(--dash-bal-active-border, #bbf7d0){% endif %}; background: {% if credit.balance <= 0 %}var(--dash-bal-danger-bg, #fef2f2){% elif credit.balance <= 10 %}var(--dash-bal-warn-bg, #fefce8){% else %}var(--dash-bal-active-bg, #f0fdf4){% endif %}; border-radius: 6px; padding: 12px;">
+          <div style="font-weight: 600; color: var(--dash-row-bold-fg, #0f172a); font-size: 13px; margin-bottom: 4px;">{{ credit.user.username }}</div>
+          <div style="font-size: 18px; font-weight: 700; color: {% if credit.balance <= 0 %}var(--dash-bal-danger-fg, #dc2626){% elif credit.balance <= 10 %}var(--dash-bal-warn-fg, #ca8a04){% else %}var(--dash-bal-active-fg, #16a34a){% endif %};">
+            ${{ credit.balance }}
+          </div>
+          {% if credit.frozen_prepaid_balance > 0 %}
+            <div style="font-size: 11px; color: var(--dash-row-muted-fg, #64748b); margin-top: 2px;">
+              Frozen: ${{ credit.frozen_prepaid_balance }}
+            </div>
+          {% endif %}
+          <div style="font-size: 11px; color: var(--dash-row-fg, #475569); margin-top: 4px;">
+            Status:
+            {% if credit.balance <= 0 %}
+              <span style="color: var(--dash-bal-danger-fg, #dc2626); font-weight: 600;">Depleted / Suspended</span>
+            {% elif credit.low_credit_alert_sent %}
+              <span style="color: var(--dash-bal-warn-fg, #d97706); font-weight: 600;">Low Credit Alert</span>
+            {% else %}
+              <span style="color: var(--dash-bal-active-fg, #16a34a); font-weight: 600;">Active</span>
+            {% endif %}
+          </div>
+        </div>
+      {% empty %}
+        <div style="color: var(--dash-row-muted-fg, #94a3b8); font-style: italic; font-size: 13px;">No client credit balances registered yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Section 2: Active GPU & Compute Load Telemetry -->
+  <div style="background: var(--dash-card-bg, #ffffff); border: 1px solid var(--dash-card-border, #e2e8f0); border-radius: 8px; padding: 16px; box-shadow: var(--dash-card-shadow, 0 1px 3px rgba(0,0,0,0.05));">
+    <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--dash-title-fg, #334155); display: flex; align-items: center; gap: 6px;">
+      ⚡ <span>Active GPU Compute & Hardware Telemetry</span>
+    </h3>
+    <div id="gpu-telemetry-table-wrapper" data-preserve-scroll="true" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead>
+          <tr style="background: var(--dash-th-bg, #f8fafc); border-bottom: 2px solid var(--dash-th-border, #e2e8f0); text-align: left; color: var(--dash-th-fg, #475569);">
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Tenant</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">GPU Model</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Serial Number</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Compute Load</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">VRAM Usage</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Temperature</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Thermal Alert</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in gpu_metrics %}
+            <tr style="border-bottom: 1px solid var(--dash-row-border, #f1f5f9);">
+              <td style="padding: 8px 10px; font-weight: 600; color: var(--dash-row-bold-fg, #1e293b); white-space: nowrap; word-break: normal;">{{ item.lease.user.username }}</td>
+              <td style="padding: 8px 10px; color: var(--dash-row-fg, #334155); white-space: nowrap; word-break: normal;">{{ item.model.name }}</td>
+              <td style="padding: 8px 10px; font-family: monospace; font-size: 11px; color: var(--dash-row-muted-fg, #64748b); white-space: nowrap; word-break: normal;">{{ item.gpu.serial_number }}</td>
+              <td style="padding: 8px 10px; white-space: nowrap; word-break: normal; color: var(--dash-row-fg, #334155);">
+                {% if item.snapshot %}
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <div style="width: 70px; background: var(--dash-progress-track, #e2e8f0); border-radius: 4px; height: 7px; overflow: hidden;">
+                      <div style="width: {{ item.snapshot.compute_load_pct }}%; background: #3b82f6; height: 100%;"></div>
+                    </div>
+                    <span style="font-weight: 600; color: var(--dash-row-bold-fg, #0f172a);">{{ item.snapshot.compute_load_pct }}%</span>
+                  </div>
+                {% else %}
+                  <span style="color: var(--dash-row-muted-fg, #94a3b8);">Pending...</span>
+                {% endif %}
+              </td>
+              <td style="padding: 8px 10px; white-space: nowrap; word-break: normal; color: var(--dash-row-fg, #334155);">
+                {% if item.snapshot %}
+                  <span style="font-weight: 600; color: var(--dash-row-bold-fg, #0f172a);">{{ item.snapshot.vram_used_gb }} GB</span> / {{ item.model.vram_capacity_gb }} GB
+                {% else %}
+                  <span style="color: var(--dash-row-muted-fg, #94a3b8);">-</span>
+                {% endif %}
+              </td>
+              <td style="padding: 8px 10px; white-space: nowrap; word-break: normal;">
+                {% if item.snapshot %}
+                  <span style="font-weight: 600; color: {% if item.snapshot.temperature_c > 90 %}var(--dash-bal-danger-fg, #dc2626){% elif item.snapshot.temperature_c > 80 %}#ea580c{% else %}var(--dash-bal-active-fg, #16a34a){% endif %};">
+                    {{ item.snapshot.temperature_c }}°C
+                  </span>
+                {% else %}
+                  <span style="color: var(--dash-row-muted-fg, #94a3b8);">-</span>
+                {% endif %}
+              </td>
+              <td style="padding: 8px 10px; white-space: nowrap; word-break: normal;">
+                {% if item.snapshot.is_thermal_alert %}
+                  <span style="background: var(--dash-badge-alert-bg, #fee2e2); color: var(--dash-badge-alert-fg, #dc2626); padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px;">🔥 ALERT</span>
+                {% else %}
+                  <span style="background: var(--dash-badge-normal-bg, #f0fdf4); color: var(--dash-badge-normal-fg, #16a34a); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 500;">NORMAL</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" style="padding: 14px 10px; text-align: center; color: var(--dash-row-muted-fg, #94a3b8); font-style: italic;">
+                No active GPU leases currently generating telemetry snapshots.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Section 3: Client Usage Cycles Table -->
+  <div style="background: var(--dash-card-bg, #ffffff); border: 1px solid var(--dash-card-border, #e2e8f0); border-radius: 8px; padding: 16px; box-shadow: var(--dash-card-shadow, 0 1px 3px rgba(0,0,0,0.05));">
+    <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--dash-title-fg, #334155); display: flex; align-items: center; gap: 6px;">
+      📊 <span>Client Consumption Cycles</span>
+    </h3>
+    <div id="usage-cycles-table-wrapper" data-preserve-scroll="true" style="overflow-x: auto; -webkit-overflow-scrolling: touch;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead>
+          <tr style="background: var(--dash-th-bg, #f8fafc); border-bottom: 2px solid var(--dash-th-border, #e2e8f0); text-align: left; color: var(--dash-th-fg, #475569);">
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Client</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Pre/Pos</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">GPU</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Hours Consumed</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Total Consumption $</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Total Credits</th>
+            <th style="padding: 8px 10px; white-space: nowrap; word-break: normal;">Final de Ciclo em</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cycle in usage_cycles %}
+            <tr style="border-bottom: 1px solid var(--dash-row-border, #f1f5f9); background: {% if cycle.is_active %}var(--dash-active-cycle-bg, #f0fdf4){% else %}transparent{% endif %};">
+              <td style="padding: 8px 10px; font-weight: 600; color: var(--dash-row-bold-fg, #1e293b); white-space: nowrap; word-break: normal;">{{ cycle.client.username }}</td>
+              <td style="padding: 8px 10px; white-space: nowrap; word-break: normal;">
+                {% if cycle.plan_type == 'PREPAID' %}
+                  <span style="background: var(--dash-badge-prepaid-bg, #dbeafe); color: var(--dash-badge-prepaid-fg, #1e40af); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Pre-paid</span>
+                {% else %}
+                  <span style="background: var(--dash-badge-postpaid-bg, #ede9fe); color: var(--dash-badge-postpaid-fg, #5b21b6); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Post-paid</span>
+                {% endif %}
+              </td>
+              <td style="padding: 8px 10px; color: var(--dash-row-fg, #334155); font-weight: 500; white-space: nowrap; word-break: normal;">{{ cycle.gpu }}</td>
+              <td style="padding: 8px 10px; color: var(--dash-row-fg, #333333); font-family: monospace; white-space: nowrap; word-break: normal;">{{ cycle.hours_consumed }}h</td>
+              <td style="padding: 8px 10px; font-weight: 700; color: var(--dash-row-bold-fg, #0f172a); white-space: nowrap; word-break: normal;">${{ cycle.total_consumption }}</td>
+              <td style="padding: 8px 10px; color: var(--dash-bal-active-fg, #16a34a); font-weight: 600; white-space: nowrap; word-break: normal;">${{ cycle.total_credits }}</td>
+              <td style="padding: 8px 10px; font-family: monospace; font-size: 11px; color: {% if cycle.cycle_ended_at %}var(--dash-bal-danger-fg, #dc2626){% else %}var(--dash-bal-active-fg, #16a34a){% endif %}; white-space: nowrap; word-break: normal;">
+                {% if cycle.cycle_ended_at %}
+                  {{ cycle.cycle_ended_at|date:"Y-m-d H:i:s" }}
+                {% else %}
+                  <span style="font-weight: 700; font-size: 13px;">-</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" style="padding: 14px 10px; text-align: center; color: var(--dash-row-muted-fg, #94a3b8); font-style: italic;">
+                No consumption cycles recorded yet.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>

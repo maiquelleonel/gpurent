@@ -3,7 +3,13 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from billing.services.ledger import invoice_flat_fee, invoice_lease_usage
+from billing.services.ledger import (
+    get_or_create_active_cycle,
+    invoice_flat_fee,
+    invoice_lease_usage,
+    is_postpaid_model,
+    is_prepaid_model,
+)
 from gpurent.core.orchestrators import BaseOrchestrator
 from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, RentalLease, RentalLeaseStatus
 
@@ -88,7 +94,7 @@ class LeaseUpgradeOrchestrator(BaseOrchestrator[RentalLease]):
                 f"Flat upgrade charge: Tier Swap from {self.old_model.name} to {self.target_model.name}."
             )
 
-        is_prepaid = self.target_model.name.startswith("NVIDIA RTX") or self.target_model.name.startswith("NVIDIA L4")
+        is_prepaid = is_prepaid_model(self.target_model)
 
         # Invoice this flat fee
         invoice_flat_fee(
@@ -99,10 +105,8 @@ class LeaseUpgradeOrchestrator(BaseOrchestrator[RentalLease]):
             is_prepaid=is_prepaid,
         )
 
-        was_prepaid = self.old_model.name.startswith("NVIDIA RTX") or self.old_model.name.startswith("NVIDIA L4")
-        is_postpaid = self.target_model.name.startswith("NVIDIA A100") or self.target_model.name.startswith(
-            "NVIDIA H100"
-        )
+        was_prepaid = is_prepaid_model(self.old_model)
+        is_postpaid = is_postpaid_model(self.target_model)
 
         if was_prepaid and is_postpaid:
             from billing.models import UserCredit
@@ -130,6 +134,7 @@ class LeaseUpgradeOrchestrator(BaseOrchestrator[RentalLease]):
         self.lease.started_at = self.now
         self.lease.total_billed_amount = (self.lease.total_billed_amount + self.fee_amount).quantize(Decimal("0.01"))
         self.lease.save(update_fields=["gpu_instance", "started_at", "total_billed_amount"])
+        get_or_create_active_cycle(self.lease.user, self.target_model, is_prepaid_model(self.target_model))
 
         logger.info(
             "Successfully upgraded lease %s from %s to %s (Physical Serial: %s).",

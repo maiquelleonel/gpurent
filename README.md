@@ -62,22 +62,48 @@ just test
 just test -x
 ```
 
-### 2. Submitting the Complete Containerized Ecosystem (Postgres + Services)
-To see the full asynchronous and real-time billing simulation operating, spin up the Docker Compose multi-container cluster:
+### 2. Local Development Workflow (Hybrid: Docker Companion Containers + Local Dev)
 
+Para uma experiência fluida de desenvolvimento com hot-reload, fila assíncrona ativa e visualização de emails em tempo real:
+
+#### Passo 1: Subir os Containers de Apoio (PostgreSQL, Mailpit e Stripe Mock)
 ```bash
-# Subir o ecossistema completo em background
-docker compose up --build -d
+# Sobe banco de dados, Mailpit SMTP e Stripe Mock em background
+docker compose up -d db stripe-mock mailpit
+```
 
-# Acompanhar os logs de todos os containers ao mesmo tempo (Web, Simulator, Queue Worker, Postgres, Stripe, Mailpit)
+#### Passo 2: Preparar Banco de Dados e Catálogo de GPUs
+```bash
+# Aplica migrations e popula o catálogo de GPUs (15 instâncias)
+just migrate
+just seed
+```
+
+#### Passo 3: Iniciar o Servidor Web e o Worker de Filas (`steady_queue`)
+O comando `just dev` utiliza o **Honcho** para rodar simultaneamente o servidor web Django (`runserver`) e o consumidor da fila de tarefas assíncronas (`steady_queue`):
+```bash
+just dev
+```
+
+#### Passo 4: Em outro terminal, Iniciar o Motor de Simulação com Agentes
+```bash
+# Executa os agentes automatizados (HappyPath, Delinquent, Upgrade, etc.) e mantém a simulação contínua
+just run_simulation
+```
+
+### 3. Docker Compose (Cluster 100% Containerizado)
+Se preferir rodar toda a stack dentro de containers Docker:
+```bash
+docker compose up --build -d
 docker compose logs -f
 ```
 
-### 🐳 Services Exposed on Host Machine:
-* **Django REST API Server:** `http://localhost:8000`
-* **Stripe Webhook Gateway Mock:** `http://localhost:12111`
-* **Mailpit Web Mail Dashboard:** `http://localhost:8025` *(open in your browser to inspect outbound transactional emails!)*
-* **PostgreSQL Database:** `localhost:5432`
+### 🌐 Painéis e Portas Locais:
+* **Django Admin & Live Dashboard:** [`http://localhost:8000/admin/`](http://localhost:8000/admin/) *(Dashboard HTMX em tempo real com suporte a Dark Mode!)*
+* **Mailpit Web Mailbox:** [`http://localhost:8025`](http://localhost:8025) *(Inspecione todos os emails transacionais gerados pelo pipeline!)*
+* **Django REST API:** `http://localhost:8000/api/`
+* **Stripe Webhook Mock Gateway:** `http://localhost:12111`
+* **PostgreSQL Database:** `localhost:54322` (ou porta interna `5432`)
 
 ---
 

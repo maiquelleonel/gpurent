@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from billing.models import Invoice, InvoiceStatus, UserCredit
+from billing.services.ledger import get_or_create_active_cycle, is_prepaid_model
 from billing.services.payment_gateway import process_payment
 from gpurent.core.orchestrators import BaseOrchestrator
 from leases.models import GPUInstance, GPUInstanceStatus, GPUModel, RentalLease, RentalLeaseStatus
@@ -44,8 +45,7 @@ class LeaseProvisioningOrchestrator(BaseOrchestrator[RentalLease]):
 
     def _check_prepaid_credits(self):
         # Check pre-paid credit limits if it's a pre-paid model family
-        is_prepaid = self.model.name.startswith("NVIDIA RTX") or self.model.name.startswith("NVIDIA L4")
-        if is_prepaid:
+        if is_prepaid_model(self.model):
             credit, _ = UserCredit.objects.select_for_update().get_or_create(user=self.user)
             if credit.balance <= Decimal("0.00"):
                 raise ValueError("Insufficient pre-paid credits to initiate lease. Please top up your balance.")
@@ -123,6 +123,7 @@ class LeaseProvisioningOrchestrator(BaseOrchestrator[RentalLease]):
                 self.lease.status = RentalLeaseStatus.ACTIVE
                 self.lease.total_billed_amount = upfront_amount
                 self.lease.save(update_fields=["status", "total_billed_amount"])
+                get_or_create_active_cycle(self.user, self.model, is_prepaid_model(self.model))
                 logger.info("Successfully provisioned and activated dedicated lease %s.", self.lease.id)
             else:
                 # Release physical card and fail lease
@@ -133,6 +134,7 @@ class LeaseProvisioningOrchestrator(BaseOrchestrator[RentalLease]):
             # Shared instance: directly activate
             self.lease.status = RentalLeaseStatus.ACTIVE
             self.lease.save(update_fields=["status"])
+            get_or_create_active_cycle(self.user, self.model, is_prepaid_model(self.model))
             logger.info("Successfully provisioned and activated shared lease %s.", self.lease.id)
 
 

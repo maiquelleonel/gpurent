@@ -82,6 +82,19 @@ To respect DDD and segment responsibilities cleanly, we separate the platform in
 * `balance`: DecimalField(max_digits=10, decimal_places=2, default=0.00)
 * `updated_at`: DateTimeField
 
+#### `ClientUsageCycle`
+* `id`: UUID (Primary Key)
+* `client`: ForeignKey(User, on_delete=CASCADE, related_name="usage_cycles")
+* `plan_type`: CharField(choices: PREPAID, POSTPAID)
+* `gpu`: CharField(max_length=128)
+* `hours_consumed`: DecimalField(max_digits=10, decimal_places=4, default=0.0000)
+* `total_consumption`: DecimalField(max_digits=10, decimal_places=2, default=0.00)
+* `total_credits`: DecimalField(max_digits=10, decimal_places=2, default=0.00)
+* `cycle_started_at`: DateTimeField(default=timezone.now)
+* `cycle_ended_at`: DateTimeField(null=True, blank=True)
+* `is_active`: BooleanField(default=True, db_index=True)
+* `created_at`: DateTimeField(auto_now_add=True)
+
 #### `Invoice`
 * `id`: UUID (Primary Key)
 * `user`: ForeignKey(User, on_delete=CASCADE, related_name="invoices")

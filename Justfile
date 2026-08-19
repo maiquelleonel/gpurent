@@ -22,7 +22,7 @@ dev:
 
 # Run simulation worker
 run_simulation:
-    uv run manage.py run_simulation
+    uv run manage.py run_simulation --run-agents
 
 # Seed GPU catalog
 seed:
@@ -32,9 +32,9 @@ seed:
 test *args="-v 0":
     uv run manage.py test {{args}} --force-color
 
-# Run guardian audit
-guardian_audit:
-    uv run manage.py guardian_audit
+# Run warden audit
+warden_audit:
+    uv run manage.py warden_audit
 
 # Django shell
 shell:
